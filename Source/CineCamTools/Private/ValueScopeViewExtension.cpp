@@ -52,14 +52,20 @@ void FValueScopeViewExtension::SetupView(FSceneViewFamily& InViewFamily, FSceneV
 		bActive = true;
 	}
 
+	// Views without a state (some scene captures) have no stable key, so they get no overlay.
+	if (!InView.State)
+	{
+		return;
+	}
+
 	FScopeLock Lock(&PendingLock);
 	if (bActive && Settings.Mode != EValueScopeMode::Off)
 	{
-		Pending.Add(&InView, Settings);
+		Pending.Add(InView.State, Settings);
 	}
 	else
 	{
-		Pending.Remove(&InView);
+		Pending.Remove(InView.State);
 	}
 }
 
@@ -74,7 +80,7 @@ void FValueScopeViewExtension::SubscribeToPostProcessingPass(EPostProcessingPass
 	FValueScopeSettings Settings;
 	{
 		FScopeLock Lock(&PendingLock);
-		if (!Pending.RemoveAndCopyValue(&InView, Settings))
+		if (!InView.State || !Pending.RemoveAndCopyValue(InView.State, Settings))
 		{
 			return;
 		}

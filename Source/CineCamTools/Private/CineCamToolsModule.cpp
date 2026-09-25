@@ -16,13 +16,13 @@ public:
 		}
 		else
 		{
-			PostEngineInitHandle = FCoreDelegates::OnPostEngineInit.AddRaw(this, &FCineCamToolsModule::CreateExtensions);
+			PostEngineInitHandle = FCoreDelegates::GetOnPostEngineInit().AddRaw(this, &FCineCamToolsModule::CreateExtensions);
 		}
 	}
 
 	virtual void ShutdownModule() override
 	{
-		FCoreDelegates::OnPostEngineInit.Remove(PostEngineInitHandle);
+		FCoreDelegates::GetOnPostEngineInit().Remove(PostEngineInitHandle);
 		ValueScope.Reset();
 	}
 

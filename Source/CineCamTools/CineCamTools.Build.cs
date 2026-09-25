@@ -1,4 +1,3 @@
-using System.IO;
 using UnrealBuildTool;
 
 public class CineCamTools : ModuleRules
@@ -21,9 +20,5 @@ public class CineCamTools : ModuleRules
 			"Renderer",
 			"CineCamToolsShaders"
 		});
-
-		// Remove once 5.8 header locations are confirmed.
-		PrivateIncludePaths.Add(Path.Combine(EngineDirectory, "Source/Runtime/Renderer/Private"));
-		PrivateIncludePaths.Add(Path.Combine(EngineDirectory, "Source/Runtime/Renderer/Internal"));
 	}
 }

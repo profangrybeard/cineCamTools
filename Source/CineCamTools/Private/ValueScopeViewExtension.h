@@ -7,6 +7,7 @@
 struct FPostProcessMaterialInputs;
 struct FScreenPassTexture;
 class FRDGBuilder;
+class FSceneViewStateInterface;
 
 class FValueScopeViewExtension : public FSceneViewExtensionBase
 {
@@ -27,6 +28,8 @@ private:
 		const FPostProcessMaterialInputs& Inputs, FValueScopeSettings Settings);
 
 	// Settings resolved on the game thread in SetupView, consumed once on the render thread.
+	// Keyed by view state, not view pointer: the renderer copies each FSceneView into an
+	// FViewInfo, so the view pointer changes but the State pointer carries over.
 	FCriticalSection PendingLock;
-	TMap<const FSceneView*, FValueScopeSettings> Pending;
+	TMap<const FSceneViewStateInterface*, FValueScopeSettings> Pending;
 };
