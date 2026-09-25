@@ -62,6 +62,9 @@ def main():
     ap.add_argument("image")
     ap.add_argument("--crop-letterbox", action="store_true")
     ap.add_argument("--out", default=None, help="folder for notan and false color PNGs")
+    ap.add_argument("--histogram-csv", default=None, help="write the 256-bin luma histogram as level,count")
+    ap.add_argument("--compare-histogram", default=None,
+                    help="compare to an engine dump from r.ValueScope.DumpHistogram")
     args = ap.parse_args()
 
     img = np.asarray(Image.open(args.image).convert("RGB")).astype(np.float64) / 255.0
@@ -83,6 +86,31 @@ def main():
     print(f"notan split: dark {100 * (luma < SHADOW_THRESHOLD).mean():.1f}%  "
           f"mid {100 * ((luma >= SHADOW_THRESHOLD) & (luma <= HIGHLIGHT_THRESHOLD)).mean():.1f}%  "
           f"light {100 * (luma > HIGHLIGHT_THRESHOLD).mean():.1f}%")
+
+    # Same binning as HistogramCS in ValueScope.usf: round(luma * 255) in whole numbers.
+    # 30R + 59G + 11B is luma * 255 * 100 exactly, so no float rounding at the .5 ties.
+    q = np.rint(img * 255).astype(np.int64)
+    levels = np.minimum(255, (30 * q[..., 0] + 59 * q[..., 1] + 11 * q[..., 2] + 50) // 100)
+    bins = np.bincount(levels.ravel(), minlength=256)
+
+    if args.histogram_csv:
+        with open(args.histogram_csv, "w", newline="") as f:
+            f.write("level,count\n")
+            for level, count in enumerate(bins):
+                f.write(f"{level},{count}\n")
+        print(f"wrote histogram to {args.histogram_csv}")
+
+    if args.compare_histogram:
+        engine = np.zeros(256, dtype=np.int64)
+        with open(args.compare_histogram) as f:
+            next(f)
+            for line in f:
+                level, count = line.strip().split(",")
+                engine[int(level)] = int(count)
+        # Share of pixels that land in the same level in both. 100% is an exact match.
+        # Two separate renders differ by dithering, so expect just under 100%.
+        overlap = np.minimum(engine / engine.sum(), bins / bins.sum()).sum()
+        print(f"histogram compare: engine {engine.sum()} px, image {bins.sum()} px, overlap {100 * overlap:.2f}%")
 
     if args.out:
         os.makedirs(args.out, exist_ok=True)

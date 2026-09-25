@@ -6,16 +6,27 @@
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 #include "GameFramework/Actor.h"
+#include "HAL/FileManager.h"
 #include "HAL/IConsoleManager.h"
+#include "Misc/DateTime.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
 #include "PixelShaderUtils.h"
 #include "PostProcess/PostProcessMaterialInputs.h"
 #include "RenderGraphBuilder.h"
+#include "RenderGraphUtils.h"
+#include "RHIGPUReadback.h"
 #include "ScreenPass.h"
 #include "SceneView.h"
 
 #if WITH_EDITOR
 #include "EditorSupportDelegates.h"
 #endif
+
+DEFINE_LOG_CATEGORY_STATIC(LogValueScope, Log, All);
+
+// The one live extension, for console commands. Set and cleared by the extension itself.
+static FValueScopeViewExtension* GValueScopeExtension = nullptr;
 
 // Editor viewports that aren't in Realtime only repaint on input, so a cvar change
 // would not show until the mouse moved. Ask every viewport to repaint instead.
@@ -56,6 +67,26 @@ static TAutoConsoleVariable<int32> CVarValueScopeThirds(
 	FConsoleVariableDelegate::CreateStatic(&OnValueScopeCVarChanged),
 	ECVF_Default);
 
+static TAutoConsoleVariable<int32> CVarValueScopeHistogram(
+	TEXT("r.ValueScope.Histogram"),
+	-1,
+	TEXT("-1: use the Value Scope component (default)\n")
+	TEXT(" 0: force the histogram off\n")
+	TEXT(" 1: force the histogram on, on every view"),
+	FConsoleVariableDelegate::CreateStatic(&OnValueScopeCVarChanged),
+	ECVF_Default);
+
+static FAutoConsoleCommand CmdValueScopeDumpHistogram(
+	TEXT("r.ValueScope.DumpHistogram"),
+	TEXT("Writes the latest luma histogram of each view to Saved/ValueScope as CSV (level,count). The histogram must be on."),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		if (GValueScopeExtension)
+		{
+			GValueScopeExtension->DumpHistograms();
+		}
+	}));
+
 static TAutoConsoleVariable<int32> CVarValueScopeOverrideMessage(
 	TEXT("r.ValueScope.OverrideMessage"),
 	1,
@@ -71,11 +102,16 @@ FValueScopeViewExtension::FValueScopeViewExtension(const FAutoRegister& AutoRegi
 	// "Rendering" is on in every editor and game viewport, so the notice shows everywhere.
 	DebugDrawHandle = UDebugDrawService::Register(TEXT("Rendering"),
 		FDebugDrawDelegate::CreateRaw(this, &FValueScopeViewExtension::DrawOverrideNotice));
+	GValueScopeExtension = this;
 }
 
 FValueScopeViewExtension::~FValueScopeViewExtension()
 {
 	UDebugDrawService::Unregister(DebugDrawHandle);
+	if (GValueScopeExtension == this)
+	{
+		GValueScopeExtension = nullptr;
+	}
 }
 
 void FValueScopeViewExtension::DrawOverrideNotice(UCanvas* Canvas, APlayerController* PC)
@@ -91,6 +127,7 @@ void FValueScopeViewExtension::DrawOverrideNotice(UCanvas* Canvas, APlayerContro
 	const int32 ForcedMode = CVarValueScopeMode.GetValueOnGameThread();
 	const int32 ForcedZebras = CVarValueScopeZebras.GetValueOnGameThread();
 	const int32 ForcedThirds = CVarValueScopeThirds.GetValueOnGameThread();
+	const int32 ForcedHistogram = CVarValueScopeHistogram.GetValueOnGameThread();
 
 	TArray<FString> Parts;
 	if (ForcedMode == 0)
@@ -108,6 +145,10 @@ void FValueScopeViewExtension::DrawOverrideNotice(UCanvas* Canvas, APlayerContro
 	if (ForcedThirds >= 0)
 	{
 		Parts.Add(FString::Printf(TEXT("Thirds %d"), ForcedThirds));
+	}
+	if (ForcedHistogram >= 0)
+	{
+		Parts.Add(FString::Printf(TEXT("Histogram %d"), ForcedHistogram));
 	}
 	if (Parts.Num() == 0)
 	{
@@ -151,11 +192,13 @@ void FValueScopeViewExtension::SetupView(FSceneViewFamily& InViewFamily, FSceneV
 		Settings.Mode = EValueScopeMode::Off;
 		Settings.bClipZebras = false;
 		Settings.bThirdsGuide = false;
+		Settings.bHistogram = false;
 	}
 
 	const int32 ForcedMode = CVarValueScopeMode.GetValueOnGameThread();
 	const int32 ForcedZebras = CVarValueScopeZebras.GetValueOnGameThread();
 	const int32 ForcedThirds = CVarValueScopeThirds.GetValueOnGameThread();
+	const int32 ForcedHistogram = CVarValueScopeHistogram.GetValueOnGameThread();
 
 	if (ForcedMode == 0)
 	{
@@ -178,6 +221,11 @@ void FValueScopeViewExtension::SetupView(FSceneViewFamily& InViewFamily, FSceneV
 			Settings.bThirdsGuide = ForcedThirds != 0;
 			bActive = true;
 		}
+		if (ForcedHistogram >= 0)
+		{
+			Settings.bHistogram = ForcedHistogram != 0;
+			bActive = true;
+		}
 	}
 
 	// Views without a state (some scene captures) have no stable key, so they get no overlay.
@@ -189,7 +237,8 @@ void FValueScopeViewExtension::SetupView(FSceneViewFamily& InViewFamily, FSceneV
 	FScopeLock Lock(&PendingLock);
 	if (bActive && Settings.IsActive())
 	{
-		Pending.Add(InView.State, Settings);
+		// HighResShot sets this while it draws its frame, and SetupView runs inside that draw.
+		Pending.Add(InView.State, FPendingView{ Settings, GIsHighResScreenshot });
 	}
 	else
 	{
@@ -205,21 +254,21 @@ void FValueScopeViewExtension::SubscribeToPostProcessingPass(EPostProcessingPass
 		return;
 	}
 
-	FValueScopeSettings Settings;
+	FPendingView PendingView;
 	{
 		FScopeLock Lock(&PendingLock);
-		if (!InView.State || !Pending.RemoveAndCopyValue(InView.State, Settings))
+		if (!InView.State || !Pending.RemoveAndCopyValue(InView.State, PendingView))
 		{
 			return;
 		}
 	}
 
 	InOutPassCallbacks.Add(FAfterPassCallbackDelegate::CreateRaw(
-		this, &FValueScopeViewExtension::AfterTonemap_RenderThread, Settings));
+		this, &FValueScopeViewExtension::AfterTonemap_RenderThread, PendingView.Settings, PendingView.bHighResShot));
 }
 
 FScreenPassTexture FValueScopeViewExtension::AfterTonemap_RenderThread(FRDGBuilder& GraphBuilder,
-	const FSceneView& View, const FPostProcessMaterialInputs& Inputs, FValueScopeSettings Settings)
+	const FSceneView& View, const FPostProcessMaterialInputs& Inputs, FValueScopeSettings Settings, bool bHighResShot)
 {
 	const FScreenPassTexture SceneColor = FScreenPassTexture::CopyFromSlice(
 		GraphBuilder, Inputs.GetInput(EPostProcessMaterialInput::SceneColor));
@@ -230,6 +279,7 @@ FScreenPassTexture FValueScopeViewExtension::AfterTonemap_RenderThread(FRDGBuild
 	}
 
 	RDG_EVENT_SCOPE(GraphBuilder, "ValueScope");
+
 
 	// If Tonemap is the last pass, the engine hands us the backbuffer and we MUST write to it.
 	FScreenPassRenderTarget Output = Inputs.OverrideOutput;
@@ -242,6 +292,16 @@ FScreenPassTexture FValueScopeViewExtension::AfterTonemap_RenderThread(FRDGBuild
 			GraphBuilder.CreateTexture(Desc, TEXT("ValueScope.Output")),
 			SceneColor.ViewRect,
 			ERenderTargetLoadAction::ENoAction);
+	}
+
+	// Measured from the untouched image, before any overlay draws over it.
+	if (Settings.bHistogram)
+	{
+		const FString Source = FString::Printf(TEXT("in %s, out %s, %s"),
+			GetPixelFormatString(SceneColor.Texture->Desc.Format),
+			GetPixelFormatString(Output.Texture->Desc.Format),
+			Inputs.OverrideOutput.IsValid() ? TEXT("ours is the last pass") : TEXT("other passes follow ours"));
+		AddHistogramPass(GraphBuilder, View, SceneColor, bHighResShot, Source);
 	}
 
 	const FScreenPassTextureViewport InputViewport(SceneColor);
@@ -271,4 +331,136 @@ FScreenPassTexture FValueScopeViewExtension::AfterTonemap_RenderThread(FRDGBuild
 		Output.ViewRect);
 
 	return FScreenPassTexture(Output);
+}
+
+void FValueScopeViewExtension::AddHistogramPass(FRDGBuilder& GraphBuilder, const FSceneView& View, const FScreenPassTexture& SceneColor, bool bHighResShot, const FString& Source)
+{
+	constexpr int32 NumBins = FValueScopeHistogramCS::NumBins;
+	constexpr uint32 NumBytes = NumBins * sizeof(uint32);
+
+	FRDGBufferRef HistogramBuffer = GraphBuilder.CreateBuffer(
+		FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), NumBins), TEXT("ValueScope.Histogram"));
+	FRDGBufferUAVRef HistogramUAV = GraphBuilder.CreateUAV(HistogramBuffer, PF_R32_UINT);
+	AddClearUAVPass(GraphBuilder, HistogramUAV, 0u);
+
+	FValueScopeHistogramCS::FParameters* Params = GraphBuilder.AllocParameters<FValueScopeHistogramCS::FParameters>();
+	Params->Input = GetScreenPassTextureViewportParameters(FScreenPassTextureViewport(SceneColor));
+	Params->InputTexture = SceneColor.Texture;
+	Params->HistogramOut = HistogramUAV;
+
+	TShaderMapRef<FValueScopeHistogramCS> ComputeShader(GetGlobalShaderMap(View.GetFeatureLevel()));
+	FComputeShaderUtils::AddPass(
+		GraphBuilder,
+		RDG_EVENT_NAME("ValueScope Histogram %dx%d", SceneColor.ViewRect.Width(), SceneColor.ViewRect.Height()),
+		ComputeShader,
+		Params,
+		FComputeShaderUtils::GetGroupCount(SceneColor.ViewRect.Size(), FValueScopeHistogramCS::GroupSize));
+
+	FViewReadbacks& ViewReadbacks = Readbacks.FindOrAdd(View.State);
+
+	// Collect earlier copies that have reached the CPU, oldest first, so the newest is published last.
+	for (int32 i = 0; i < NumReadbackSlots; ++i)
+	{
+		FReadbackSlot& Slot = ViewReadbacks.Slots[(ViewReadbacks.Next + i) % NumReadbackSlots];
+		if (Slot.bPending && Slot.Readback->IsReady())
+		{
+			FHistogram Result;
+			Result.Size = Slot.Size;
+			Result.Source = Slot.Source;
+			Result.Bins.SetNumUninitialized(NumBins);
+			const uint32* Data = static_cast<const uint32*>(Slot.Readback->Lock(NumBytes));
+			FMemory::Memcpy(Result.Bins.GetData(), Data, NumBytes);
+			Slot.Readback->Unlock();
+			Slot.bPending = false;
+
+			FScopeLock Lock(&LatestLock);
+			if (Slot.bHighResShot)
+			{
+				LatestHighResShot = Result;
+			}
+			Latest.Add(View.State, MoveTemp(Result));
+		}
+	}
+
+	// Queue this frame's copy in a free slot. If all are still in flight, skip this frame,
+	// unless it's a HighResShot frame: then take the oldest slot and drop its copy instead.
+	int32 Chosen = INDEX_NONE;
+	for (int32 i = 0; i < NumReadbackSlots && Chosen == INDEX_NONE; ++i)
+	{
+		const int32 Index = (ViewReadbacks.Next + i) % NumReadbackSlots;
+		if (!ViewReadbacks.Slots[Index].bPending)
+		{
+			Chosen = Index;
+		}
+	}
+	if (Chosen == INDEX_NONE && bHighResShot)
+	{
+		Chosen = ViewReadbacks.Next; // Oldest copy in flight.
+	}
+	if (Chosen != INDEX_NONE)
+	{
+		FReadbackSlot& Slot = ViewReadbacks.Slots[Chosen];
+		if (!Slot.Readback)
+		{
+			Slot.Readback = MakeUnique<FRHIGPUBufferReadback>(TEXT("ValueScope.HistogramReadback"));
+		}
+		AddEnqueueCopyPass(GraphBuilder, Slot.Readback.Get(), HistogramBuffer, NumBytes);
+		Slot.Size = SceneColor.ViewRect.Size();
+		Slot.bPending = true;
+		Slot.bHighResShot = bHighResShot;
+		Slot.Source = Source;
+		ViewReadbacks.Next = (Chosen + 1) % NumReadbackSlots;
+	}
+}
+
+void FValueScopeViewExtension::DumpHistograms()
+{
+	TArray<FHistogram> Histograms;
+	TArray<FString> Labels;
+	{
+		FScopeLock Lock(&LatestLock);
+		for (const TPair<const FSceneViewStateInterface*, FHistogram>& Pair : Latest)
+		{
+			Labels.Add(FString::Printf(TEXT("v%d"), Histograms.Num()));
+			Histograms.Add(Pair.Value);
+		}
+		if (LatestHighResShot.IsSet())
+		{
+			Labels.Add(TEXT("highresshot"));
+			Histograms.Add(LatestHighResShot.GetValue());
+		}
+	}
+
+	if (Histograms.Num() == 0)
+	{
+		UE_LOG(LogValueScope, Warning, TEXT("Value Scope: no histogram yet. Turn it on first (r.ValueScope.Histogram 1), then try again."));
+		return;
+	}
+
+	const FString Dir = FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("ValueScope"));
+	IFileManager::Get().MakeDirectory(*Dir, true);
+	const FString Stamp = FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S"));
+
+	for (int32 ViewIndex = 0; ViewIndex < Histograms.Num(); ++ViewIndex)
+	{
+		const FHistogram& Histogram = Histograms[ViewIndex];
+
+		uint64 Total = 0;
+		FString Csv = TEXT("level,count\n");
+		for (int32 Level = 0; Level < Histogram.Bins.Num(); ++Level)
+		{
+			Total += Histogram.Bins[Level];
+			Csv += FString::Printf(TEXT("%d,%u\n"), Level, Histogram.Bins[Level]);
+		}
+
+		const FString Path = FPaths::Combine(Dir, FString::Printf(TEXT("Histogram_%dx%d_%s_%s.csv"),
+			Histogram.Size.X, Histogram.Size.Y, *Stamp, *Labels[ViewIndex]));
+		FFileHelper::SaveStringToFile(Csv, *Path);
+
+		// Every pixel of the view lands in exactly one bin, so these must match.
+		const uint64 Expected = uint64(Histogram.Size.X) * uint64(Histogram.Size.Y);
+		UE_LOG(LogValueScope, Display, TEXT("Value Scope: histogram %dx%d, %llu pixels counted, %llu expected%s (%s). Wrote %s"),
+			Histogram.Size.X, Histogram.Size.Y, Total, Expected, Total == Expected ? TEXT("") : TEXT(" (MISMATCH)"),
+			*Histogram.Source, *FPaths::ConvertRelativePathToFull(Path));
+	}
 }

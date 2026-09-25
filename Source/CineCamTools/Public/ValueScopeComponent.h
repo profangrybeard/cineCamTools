@@ -45,10 +45,14 @@ struct FValueScopeSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Value Scope")
 	bool bThirdsGuide = false;
 
-	/** True if anything would be drawn. */
+	/** Luma histogram of the frame, 0 to 255, like Photoshop's Luminosity histogram. Works with any mode, including Off. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Value Scope")
+	bool bHistogram = false;
+
+	/** True if anything would be drawn or measured. */
 	bool IsActive() const
 	{
-		return Mode != EValueScopeMode::Off || bClipZebras || bThirdsGuide;
+		return Mode != EValueScopeMode::Off || bClipZebras || bThirdsGuide || bHistogram;
 	}
 };
 

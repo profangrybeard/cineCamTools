@@ -39,6 +39,39 @@ static const float3 ZonePalette[11] =
 	float3(1.00, 0.00, 0.00), // X
 };
 
+#ifndef THREADGROUP_SIZE
+#define THREADGROUP_SIZE 16
+#endif
+
+RWBuffer<uint> HistogramOut;
+groupshared uint LocalBins[THREADGROUP_SIZE * THREADGROUP_SIZE];
+
+// Luma histogram, 256 bins. Binning must match value_report.py --histogram-csv:
+// quantize to 8 bits (what a PNG and Photoshop see), then bin = round(luma * 255) in whole
+// numbers: 30R + 59G + 11B is luma * 255 * 100 exactly (the 0.30 / 0.59 / 0.11 weights),
+// so there is no float rounding to disagree on at the .5 ties.
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
+void HistogramCS(uint3 DispatchThreadId : SV_DispatchThreadID, uint GroupIndex : SV_GroupIndex)
+{
+	LocalBins[GroupIndex] = 0;
+	GroupMemoryBarrierWithGroupSync();
+
+	if (all(DispatchThreadId.xy < uint2(Input_ViewportSize)))
+	{
+		const int2 Pixel = int2(Input_ViewportMin) + int2(DispatchThreadId.xy);
+		const uint3 Q = (uint3)round(saturate(InputTexture.Load(int3(Pixel, 0)).rgb) * 255.0);
+		const uint Bin = min(255u, (30u * Q.r + 59u * Q.g + 11u * Q.b + 50u) / 100u);
+		InterlockedAdd(LocalBins[Bin], 1u);
+	}
+	GroupMemoryBarrierWithGroupSync();
+
+	// One thread per bin merges this group's counts into the frame total.
+	if (LocalBins[GroupIndex] > 0)
+	{
+		InterlockedAdd(HistogramOut[GroupIndex], LocalBins[GroupIndex]);
+	}
+}
+
 void MainPS(float4 SvPosition : SV_POSITION, out float4 OutColor : SV_Target0)
 {
 	const float2 PixelPos = SvPosition.xy - Output_ViewportMin;
