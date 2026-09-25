@@ -13,6 +13,7 @@ class FValueScopeViewExtension : public FSceneViewExtensionBase
 {
 public:
 	FValueScopeViewExtension(const FAutoRegister& AutoRegister);
+	virtual ~FValueScopeViewExtension();
 
 	// Game thread
 	virtual void SetupViewFamily(FSceneViewFamily& InViewFamily) override {}
@@ -24,6 +25,10 @@ public:
 		FAfterPassCallbackDelegateArray& InOutPassCallbacks, bool bIsPassEnabled) override;
 
 private:
+	// Game thread. Draws the console override notice on every editor and game viewport.
+	void DrawOverrideNotice(class UCanvas* Canvas, class APlayerController* PC);
+	FDelegateHandle DebugDrawHandle;
+
 	FScreenPassTexture AfterTonemap_RenderThread(FRDGBuilder& GraphBuilder, const FSceneView& View,
 		const FPostProcessMaterialInputs& Inputs, FValueScopeSettings Settings);
 

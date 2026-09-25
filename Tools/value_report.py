@@ -2,9 +2,11 @@
 """
 Value report for a rendered frame. CPU reference for the Value Scope shader.
 
-Luma weights and notan thresholds match Shaders/Private/ValueScope.usf and the
-defaults in ValueScopeComponent.h. If you change one, change the other.
-Zones and clip levels are report-only for now (false color and zebras are roadmap).
+Luma weights, notan thresholds, clip levels and the zone palette match
+Shaders/Private/ValueScope.usf and the defaults in ValueScopeComponent.h.
+If you change one, change the others. The false color preview matches the
+shader's False Color mode, and the clip percentages count the pixels the
+shader's zebras stripe.
 
 Usage:
     python value_report.py frame.png
@@ -19,7 +21,7 @@ import sys
 import numpy as np
 from PIL import Image
 
-# Luma and notan thresholds: keep in sync with ValueScope.usf and ValueScopeComponent.h.
+# Keep all of these in sync with ValueScope.usf and ValueScopeComponent.h.
 LUMA_WEIGHTS = np.array([0.30, 0.59, 0.11])  # Photoshop Luminosity histogram
 SHADOW_THRESHOLD = 0.25
 HIGHLIGHT_THRESHOLD = 0.75

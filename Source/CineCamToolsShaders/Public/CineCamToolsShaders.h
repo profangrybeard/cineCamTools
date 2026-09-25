@@ -26,6 +26,9 @@ public:
 		SHADER_PARAMETER_SAMPLER(SamplerState, InputSampler)
 		SHADER_PARAMETER(int32, Mode)
 		SHADER_PARAMETER(FVector2f, NotanThresholds) // x = shadow max, y = highlight min
+		SHADER_PARAMETER(FVector2f, ClipLevels)      // x = black clip, y = white clip
+		SHADER_PARAMETER(int32, ClipZebras)
+		SHADER_PARAMETER(int32, ThirdsGuide)
 		RENDER_TARGET_BINDING_SLOTS()
 	END_SHADER_PARAMETER_STRUCT()
 

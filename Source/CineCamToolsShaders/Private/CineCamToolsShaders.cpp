@@ -2,6 +2,7 @@
 
 #include "Interfaces/IPluginManager.h"
 #include "Misc/Paths.h"
+#include "Modules/ModuleManager.h"
 #include "ShaderCore.h"
 
 IMPLEMENT_GLOBAL_SHADER(FValueScopePS, "/Plugin/CineCamTools/Private/ValueScope.usf", "MainPS", SF_Pixel);

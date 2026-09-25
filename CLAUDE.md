@@ -2,9 +2,9 @@
 
 Unreal Engine 5.8 plugin of camera tools for teaching lighting, value and composition at SCAD ITGM/GAME. First tool is **Value Scope**: overlays drawn on the final, post-tonemap image so students judge value in engine the way they'd judge it with a Photoshop histogram.
 
-## Current goal: plumbing only
+## Current goal: roadmap, step 2 (waiting for Tim)
 
-This is a clean start. The job right now is proving the pipeline works end to end, not adding features. Do not start roadmap items until every box in "Plumbing checklist" is checked and Tim says go.
+Plumbing and step 1 are done (both checklists below, all checked). Do not start step 2 until Tim says go.
 
 ## Paths
 
@@ -31,11 +31,15 @@ Scripts/                      link_workbench.bat, build_workbench.bat, package_p
 ## How it works
 
 1. `UValueScopeComponent` sits on a CineCameraActor and holds `FValueScopeSettings`.
-2. `FValueScopeViewExtension::SetupView` (game thread) reads the component off `InView.ViewActor`, or the `r.ValueScope.Mode` cvar override, and stores settings in `Pending` keyed by the view's `State` pointer.
+2. `FValueScopeViewExtension::SetupView` (game thread) reads the component off `InView.ViewActor`, applies the `r.ValueScope.Mode` / `.Zebras` / `.Thirds` cvar overrides, and stores settings in `Pending` keyed by the view's `State` pointer.
 3. `SubscribeToPostProcessingPass` (render thread) takes those settings for `EPostProcessingPass::Tonemap` and adds `AfterTonemap_RenderThread`.
 4. That callback draws `FValueScopePS` full screen. If `Inputs.OverrideOutput` is valid it must write there, because it's the backbuffer when Tonemap is the last pass.
 
-Modes: 0 off, 1 plumbing check (image untouched, 6px magenta frame on the view rect edges), 2 notan.
+Modes: 0 off, 1 plumbing check (image untouched, 6px magenta frame on the view rect edges), 2 notan, 3 false color (11 zones, palette shared with `value_report.py`).
+
+Overlays, on top of any mode including Off: clip zebras (diagonal stripes, red at or above White Clip, blue at or below Black Clip, tested on the source luma) and the thirds guide. Stripe period and line width scale with view height (1x per 540 px).
+
+Cvars: `r.ValueScope.Mode` -1 component, 0 everything off, 1 to 3 force mode. `r.ValueScope.Zebras` and `r.ValueScope.Thirds` -1 component, 0 force off, 1 force on. With no component on the view target, only what a cvar forces is drawn. While any override is set, a yellow on-screen notice says so (`r.ValueScope.OverrideMessage 0` hides it, and so does `DisableAllScreenMessages`; it never shows in HighResShot).
 
 ## Build
 
@@ -54,6 +58,20 @@ Work top to bottom. Stop and report at the first failure.
 - [x] `r.ValueScope.Mode 2`: viewport goes to 3 values.
 - [x] `r.ValueScope.Mode -1`, add Value Scope to a CineCamera, make it the view target in PIE: overlay shows through that camera only. CineCameraActor hides Auto Activate for Player, so use Level Blueprint: BeginPlay > Get Player Controller > Set View Target with Blend.
 - [x] `HighResShot 1` with the scope off, then `python Tools\value_report.py <shot> --out previews`. The notan preview should match the in-engine notan.
+
+## Step 1 checklist
+
+Full editor restart after building (new UPROPERTYs and shader params, Live Coding can't take them). Work in the editor viewport unless noted.
+
+- [x] Build clean, editor opens, no `ValueScope.usf` errors.
+- [x] `r.ValueScope.Mode 3`: false color. Grey (zone V) where mid values are, no image colors left.
+- [x] `r.ValueScope.Mode -1`, `r.ValueScope.Zebras 1`: image normal except stripes on clipped areas. Blow out something (raise exposure) to see red; crush something to see blue.
+- [x] `r.ValueScope.Thirds 1`: two vertical and two horizontal lines at thirds, visible on sky and on floor. Screen Percentage 50: lines stay at thirds.
+- [x] `r.ValueScope.Mode 0`: everything off, even with Zebras and Thirds at 1.
+- [x] Component: Value Scope on the CineCamera with False Color, Clip Zebras and Thirds Guide on, PIE through it. All three show. Editor viewport stays clean with cvars back at -1.
+- [x] Override notice: set any `r.ValueScope.*` cvar and a yellow line names it, in the editor viewport and PIE. All at -1: gone. `r.ValueScope.OverrideMessage 0` hides it, `DisableAllScreenMessages` hides it, `EnableAllScreenMessages` brings it back.
+- [x] `Scripts\package_plugin.bat` passes. The editor build is modular and hides missing includes; the packaged game build is monolithic and does not (it caught a missing `Modules/ModuleManager.h`).
+- [x] `HighResShot 1` with scope off, then with `r.ValueScope.Mode 3`. Script false color preview matches the shader's pixel by pixel (within rounding).
 
 ## Rules that should not drift
 
@@ -77,6 +95,10 @@ Resolved against the 5.8.3 install (CL 58210709):
 - `Inputs.GetInput(...)` returns `FScreenPassTextureSlice`. `FScreenPassTexture::CopyFromSlice(GraphBuilder, Slice)` returns `FScreenPassTexture`. `Inputs.OverrideOutput` is an `FScreenPassRenderTarget`.
 - `Pending` can't be keyed by view pointer. The renderer copies each `FSceneView` into a new `FViewInfo` (`SceneRendering.cpp`, `Views.Emplace_GetRef(InViewFamily->Views[i])`), so `SubscribeToPostProcessingPass` sees a different address than `SetupView`. It's now keyed by `InView.State`, which is copied over and unique per view. Views with no State get no overlay.
 
-## Roadmap (not now)
+## Roadmap
 
-False color zones, clip zebras, thirds guide, luma histogram (compute + readback), on-screen clip percentages, presets data asset, waveform, Sequencer keying, editor toolbar toggle.
+Done, step 1: false color zones, clip zebras, thirds guide, console override notice.
+
+Step 2 (next): luma histogram (compute + readback), on-screen clip percentages, waveform. First GPU readback, so it gets its own plumbing check.
+
+Later: presets data asset, Sequencer keying, editor toolbar toggle.

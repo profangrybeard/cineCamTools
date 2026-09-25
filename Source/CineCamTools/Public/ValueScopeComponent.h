@@ -7,9 +7,10 @@
 UENUM(BlueprintType)
 enum class EValueScopeMode : uint8
 {
-	Off,
+	Off           UMETA(ToolTip = "Image unchanged. Zebras and the thirds guide still draw if they are on."),
 	PlumbingCheck UMETA(ToolTip = "Image unchanged, magenta frame on the view edges. Proves the render hook works."),
-	Notan         UMETA(ToolTip = "Black, grey, white. Shows value structure.")
+	Notan         UMETA(ToolTip = "Black, grey, white. Shows value structure."),
+	FalseColor    UMETA(DisplayName = "False Color", ToolTip = "Paints each of the 11 zones (0 to X) its own color. Same colors as value_report.py.")
 };
 
 USTRUCT(BlueprintType)
@@ -27,6 +28,28 @@ struct FValueScopeSettings
 	/** Above this is white in the notan. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Value Scope", meta = (ClampMin = 0, ClampMax = 1))
 	float HighlightThreshold = 0.75f;
+
+	/** Stripes over crushed blacks (blue) and blown whites (red). Works with any mode, including Off. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Value Scope")
+	bool bClipZebras = false;
+
+	/** At or below this is crushed black. 0.02 is about level 5 of 255. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Value Scope", meta = (ClampMin = 0, ClampMax = 1, EditCondition = "bClipZebras"))
+	float BlackClip = 0.02f;
+
+	/** At or above this is blown white. 0.98 is about level 250 of 255. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Value Scope", meta = (ClampMin = 0, ClampMax = 1, EditCondition = "bClipZebras"))
+	float WhiteClip = 0.98f;
+
+	/** Rule of thirds lines over the frame. Works with any mode, including Off. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Value Scope")
+	bool bThirdsGuide = false;
+
+	/** True if anything would be drawn. */
+	bool IsActive() const
+	{
+		return Mode != EValueScopeMode::Off || bClipZebras || bThirdsGuide;
+	}
 };
 
 /**

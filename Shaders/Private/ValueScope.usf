@@ -11,14 +11,33 @@ SCREEN_PASS_TEXTURE_VIEWPORT(Output)
 Texture2D InputTexture;
 SamplerState InputSampler;
 
-int Mode;               // 0 off, 1 plumbing check, 2 notan
-float2 NotanThresholds;
+int Mode;               // 0 off, 1 plumbing check, 2 notan, 3 false color
+float2 NotanThresholds; // x = shadow max, y = highlight min
+float2 ClipLevels;      // x = black clip, y = white clip
+int ClipZebras;
+int ThirdsGuide;
 
 // Photoshop Luminosity histogram weights. Keep in sync with Tools/value_report.py.
 float Luma(float3 C)
 {
 	return dot(C, float3(0.30, 0.59, 0.11));
 }
+
+// Zone 0 to X. Keep in sync with ZONE_PALETTE in Tools/value_report.py.
+static const float3 ZonePalette[11] =
+{
+	float3(0.25, 0.00, 0.40), // 0
+	float3(0.10, 0.10, 0.65), // I
+	float3(0.00, 0.35, 0.80), // II
+	float3(0.00, 0.55, 0.55), // III
+	float3(0.15, 0.60, 0.20), // IV
+	float3(0.50, 0.50, 0.50), // V
+	float3(0.70, 0.70, 0.30), // VI
+	float3(0.95, 0.80, 0.10), // VII
+	float3(1.00, 0.55, 0.00), // VIII
+	float3(1.00, 0.30, 0.30), // IX
+	float3(1.00, 0.00, 0.00), // X
+};
 
 void MainPS(float4 SvPosition : SV_POSITION, out float4 OutColor : SV_Target0)
 {
@@ -27,7 +46,49 @@ void MainPS(float4 SvPosition : SV_POSITION, out float4 OutColor : SV_Target0)
 	UV = Input_UVViewportMin + UV * Input_UVViewportSize;
 
 	const float4 Src = Texture2DSample(InputTexture, InputSampler, UV);
+	const float L = saturate(Luma(Src.rgb));
 	float3 Result = Src.rgb;
+
+	if (Mode == 2)
+	{
+		Result = L < NotanThresholds.x ? 0.0 : (L > NotanThresholds.y ? 1.0 : 0.5);
+	}
+	else if (Mode == 3)
+	{
+		const int Zone = clamp((int)floor(L * 10.999), 0, 10);
+		Result = ZonePalette[Zone];
+	}
+
+	// Sizes scale with the view so they read the same at any resolution.
+	const float Scale = max(1.0, round(Output_ViewportSize.y / 540.0));
+
+	if (ClipZebras != 0)
+	{
+		// Diagonal stripes over clipped pixels, tested on the source image so they
+		// agree with the clip percentages in value_report.py whatever the mode.
+		const float Period = 6.0 * Scale;
+		const bool bStripe = frac((PixelPos.x + PixelPos.y) / Period) < 0.5;
+		if (bStripe && L >= ClipLevels.y)
+		{
+			Result = float3(1.0, 0.0, 0.0);
+		}
+		else if (bStripe && L <= ClipLevels.x)
+		{
+			Result = float3(0.0, 0.4, 1.0);
+		}
+	}
+
+	if (ThirdsGuide != 0)
+	{
+		const float2 Third = Output_ViewportSize / 3.0;
+		const float2 D = min(abs(PixelPos - Third), abs(PixelPos - 2.0 * Third));
+		if (min(D.x, D.y) < 0.5 * Scale)
+		{
+			// Dark line on bright areas, light line on dark areas, so it always shows.
+			const float Line = Luma(Result) > 0.6 ? 0.0 : 1.0;
+			Result = lerp(Result, Line, 0.7);
+		}
+	}
 
 	if (Mode == 1)
 	{
@@ -39,11 +100,6 @@ void MainPS(float4 SvPosition : SV_POSITION, out float4 OutColor : SV_Target0)
 		{
 			Result = float3(1.0, 0.0, 1.0);
 		}
-	}
-	else if (Mode == 2)
-	{
-		const float L = saturate(Luma(Src.rgb));
-		Result = L < NotanThresholds.x ? 0.0 : (L > NotanThresholds.y ? 1.0 : 0.5);
 	}
 
 	OutColor = float4(Result, Src.a);
