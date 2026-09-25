@@ -26,9 +26,15 @@ public:
 		FAfterPassCallbackDelegateArray& InOutPassCallbacks, bool bIsPassEnabled) override;
 
 private:
-	// Game thread. Draws the console override notice on every editor and game viewport.
-	void DrawOverrideNotice(class UCanvas* Canvas, class APlayerController* PC);
+	// Game thread. Canvas text on every editor and game viewport: the console override
+	// notice and the clip percentages. Canvas text never lands in HighResShot.
+	void DrawCanvas(class UCanvas* Canvas, class APlayerController* PC);
+	void DrawOverrideNotice(class UCanvas* Canvas);
+	void DrawClipPercentages(class UCanvas* Canvas);
 	FDelegateHandle DebugDrawHandle;
+
+	// Game thread only. Each view's resolved settings, for the canvas text.
+	TMap<const FSceneViewStateInterface*, FValueScopeSettings> CanvasSettings;
 
 	FScreenPassTexture AfterTonemap_RenderThread(FRDGBuilder& GraphBuilder, const FSceneView& View,
 		const FPostProcessMaterialInputs& Inputs, FValueScopeSettings Settings, bool bHighResShot);

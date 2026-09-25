@@ -23,6 +23,15 @@ float Luma(float3 C)
 	return dot(C, float3(0.30, 0.59, 0.11));
 }
 
+// Luma as a whole level 0 to 255, from the 8-bit color a PNG and Photoshop see.
+// 30R + 59G + 11B is luma * 255 * 100 exactly (the weights above), so no float rounding
+// at .5 ties. The histogram, the zebras and value_report.py all use this.
+uint LumaLevel(float3 C)
+{
+	const uint3 Q = (uint3)round(saturate(C) * 255.0);
+	return min(255u, (30u * Q.r + 59u * Q.g + 11u * Q.b + 50u) / 100u);
+}
+
 // Zone 0 to X. Keep in sync with ZONE_PALETTE in Tools/value_report.py.
 static const float3 ZonePalette[11] =
 {
@@ -59,8 +68,7 @@ void HistogramCS(uint3 DispatchThreadId : SV_DispatchThreadID, uint GroupIndex :
 	if (all(DispatchThreadId.xy < uint2(Input_ViewportSize)))
 	{
 		const int2 Pixel = int2(Input_ViewportMin) + int2(DispatchThreadId.xy);
-		const uint3 Q = (uint3)round(saturate(InputTexture.Load(int3(Pixel, 0)).rgb) * 255.0);
-		const uint Bin = min(255u, (30u * Q.r + 59u * Q.g + 11u * Q.b + 50u) / 100u);
+		const uint Bin = LumaLevel(InputTexture.Load(int3(Pixel, 0)).rgb);
 		InterlockedAdd(LocalBins[Bin], 1u);
 	}
 	GroupMemoryBarrierWithGroupSync();
@@ -131,15 +139,16 @@ void MainPS(float4 SvPosition : SV_POSITION, out float4 OutColor : SV_Target0)
 
 	if (ClipZebras != 0)
 	{
-		// Diagonal stripes over clipped pixels, tested on the source image so they
-		// agree with the clip percentages in value_report.py whatever the mode.
+		// Diagonal stripes over clipped pixels, tested on the source image in whole levels,
+		// so they mark exactly the pixels the clip percentages count, whatever the mode.
 		const float Period = 6.0 * Scale;
 		const bool bStripe = frac((PixelPos.x + PixelPos.y) / Period) < 0.5;
-		if (bStripe && L >= ClipLevels.y)
+		const uint Level = LumaLevel(Src.rgb);
+		if (bStripe && Level >= (uint)round(ClipLevels.y * 255.0))
 		{
 			Result = float3(1.0, 0.0, 0.0);
 		}
-		else if (bStripe && L <= ClipLevels.x)
+		else if (bStripe && Level <= (uint)round(ClipLevels.x * 255.0))
 		{
 			Result = float3(0.0, 0.4, 1.0);
 		}

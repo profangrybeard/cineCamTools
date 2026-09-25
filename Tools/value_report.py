@@ -74,11 +74,18 @@ def main():
     luma = np.clip(img @ LUMA_WEIGHTS, 0, 1)
     zones = np.clip(np.floor(luma * 10.999), 0, 10).astype(int)
 
+    # Whole level 0 to 255, same as LumaLevel in ValueScope.usf. 30R + 59G + 11B is
+    # luma * 255 * 100 exactly, so no float rounding at the .5 ties.
+    q = np.rint(img * 255).astype(np.int64)
+    levels = np.minimum(255, (30 * q[..., 0] + 59 * q[..., 1] + 11 * q[..., 2] + 50) // 100)
+    black_level = round(BLACK_CLIP * 255)
+    white_level = round(WHITE_CLIP * 255)
+
     print(f"{args.image}  {img.shape[1]}x{img.shape[0]}")
     print(f"min level {round(luma.min() * 255)}   max level {round(luma.max() * 255)}   "
           f"median level {round(np.median(luma) * 255)}")
-    print(f"crushed black (<= level {round(BLACK_CLIP * 255)}): {100 * (luma <= BLACK_CLIP).mean():5.1f}%")
-    print(f"blown white   (>= level {round(WHITE_CLIP * 255)}): {100 * (luma >= WHITE_CLIP).mean():5.1f}%")
+    print(f"crushed black (<= level {black_level}): {100 * (levels <= black_level).mean():5.1f}%")
+    print(f"blown white   (>= level {white_level}): {100 * (levels >= white_level).mean():5.1f}%")
     print("zones:")
     for z in range(11):
         pct = 100 * (zones == z).mean()
@@ -87,10 +94,6 @@ def main():
           f"mid {100 * ((luma >= SHADOW_THRESHOLD) & (luma <= HIGHLIGHT_THRESHOLD)).mean():.1f}%  "
           f"light {100 * (luma > HIGHLIGHT_THRESHOLD).mean():.1f}%")
 
-    # Same binning as HistogramCS in ValueScope.usf: round(luma * 255) in whole numbers.
-    # 30R + 59G + 11B is luma * 255 * 100 exactly, so no float rounding at the .5 ties.
-    q = np.rint(img * 255).astype(np.int64)
-    levels = np.minimum(255, (30 * q[..., 0] + 59 * q[..., 1] + 11 * q[..., 2] + 50) // 100)
     bins = np.bincount(levels.ravel(), minlength=256)
 
     if args.histogram_csv:

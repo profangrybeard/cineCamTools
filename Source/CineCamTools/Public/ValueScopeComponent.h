@@ -33,12 +33,12 @@ struct FValueScopeSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Value Scope")
 	bool bClipZebras = false;
 
-	/** At or below this is crushed black. 0.02 is about level 5 of 255. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Value Scope", meta = (ClampMin = 0, ClampMax = 1, EditCondition = "bClipZebras"))
+	/** At or below this is crushed black. Used as a whole level: 0.02 is level 5 of 255. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Value Scope", meta = (ClampMin = 0, ClampMax = 1, EditCondition = "bClipZebras || bClipPercentages"))
 	float BlackClip = 0.02f;
 
-	/** At or above this is blown white. 0.98 is about level 250 of 255. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Value Scope", meta = (ClampMin = 0, ClampMax = 1, EditCondition = "bClipZebras"))
+	/** At or above this is blown white. Used as a whole level: 0.98 is level 250 of 255. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Value Scope", meta = (ClampMin = 0, ClampMax = 1, EditCondition = "bClipZebras || bClipPercentages"))
 	float WhiteClip = 0.98f;
 
 	/** Rule of thirds lines over the frame. Works with any mode, including Off. */
@@ -49,10 +49,14 @@ struct FValueScopeSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Value Scope")
 	bool bHistogram = false;
 
+	/** Share of the frame crushed to black and blown to white, as text under the histogram. Uses the Black Clip and White Clip levels. Not baked into screenshots. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Value Scope")
+	bool bClipPercentages = false;
+
 	/** True if anything would be drawn or measured. */
 	bool IsActive() const
 	{
-		return Mode != EValueScopeMode::Off || bClipZebras || bThirdsGuide || bHistogram;
+		return Mode != EValueScopeMode::Off || bClipZebras || bThirdsGuide || bHistogram || bClipPercentages;
 	}
 };
 

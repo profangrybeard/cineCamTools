@@ -48,7 +48,7 @@ Modes: 0 off, 1 plumbing check (image untouched, 6px magenta frame on the view r
 
 Overlays, on top of any mode including Off: clip zebras (diagonal stripes, red at or above White Clip, blue at or below Black Clip, tested on the source luma) and the thirds guide. Stripe period and line width scale with view height (1x per 540 px).
 
-Cvars: `r.ValueScope.Mode` -1 component, 0 everything off, 1 to 3 force mode. `r.ValueScope.Zebras`, `r.ValueScope.Thirds` and `r.ValueScope.Histogram` -1 component, 0 force off, 1 force on. `r.ValueScope.DumpHistogram` writes each view's latest histogram (from the GPU readback) to `Saved/ValueScope/*.csv`. With no component on the view target, only what a cvar forces is drawn. While any override is set, a yellow on-screen notice says so (`r.ValueScope.OverrideMessage 0` hides it, and so does `DisableAllScreenMessages`; it never shows in HighResShot).
+Cvars: `r.ValueScope.Mode` -1 component, 0 everything off, 1 to 3 force mode. `r.ValueScope.Zebras`, `r.ValueScope.Thirds`, `r.ValueScope.Histogram` and `r.ValueScope.ClipPercent` -1 component, 0 force off, 1 force on. `r.ValueScope.DumpHistogram` writes each view's latest histogram (from the GPU readback) to `Saved/ValueScope/*.csv`. With no component on the view target, only what a cvar forces is drawn. While any override is set, a yellow on-screen notice says so (`r.ValueScope.OverrideMessage 0` hides it, and so does `DisableAllScreenMessages`; it never shows in HighResShot).
 
 ## Build
 
@@ -101,7 +101,17 @@ Full editor restart after building (new UPROPERTYs and shader params, Live Codin
 - [x] Component: Histogram on the CineCamera's Value Scope, PIE through it: panel shows.
 - [x] `package_plugin.bat` passes.
 
-2.3 clip text, 2.4 waveform: checklists written when each starts.
+2.3 clip percentages (canvas text from the readback, under the panel; clipping is whole levels everywhere: `LumaLevel()` in the shader, same formula in the script, level <= round(Black Clip x 255) and >= round(White Clip x 255)):
+
+- [x] Build clean, editor opens, no `ValueScope.usf` errors.
+- [x] `r.ValueScope.Histogram 1`, `r.ValueScope.ClipPercent 1`: "Crushed" (blue) and "Blown" (red) just under the panel, left edge and middle. Screen Percentage 50: still under it.
+- [x] `r.ValueScope.Histogram 0`, clip text on: text moves up to where the panel's top would be.
+- [x] Push exposure until something clips. Game View, `HighResShot 1`: the PNG has no text in it, and `python Tools\value_report.py <shot>` crushed and blown match the on-screen numbers to 0.1%. Result: shot 12 blown 22.2%, shot 13 crushed 10.2%, both matched on screen; no text in either PNG.
+- [x] Same exposure, `r.ValueScope.Zebras 1`: stripes cover exactly the clipped areas the numbers count (red with Blown, blue with Crushed).
+- [x] Component: Clip Percentages on the CineCamera's Value Scope, PIE through it: text shows. Clip levels are editable when Zebras or Clip Percentages is on.
+- [x] `package_plugin.bat` passes.
+
+2.4 waveform: checklist written when it starts.
 
 ## Rules that should not drift
 

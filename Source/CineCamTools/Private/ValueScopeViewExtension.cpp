@@ -76,6 +76,15 @@ static TAutoConsoleVariable<int32> CVarValueScopeHistogram(
 	FConsoleVariableDelegate::CreateStatic(&OnValueScopeCVarChanged),
 	ECVF_Default);
 
+static TAutoConsoleVariable<int32> CVarValueScopeClipPercent(
+	TEXT("r.ValueScope.ClipPercent"),
+	-1,
+	TEXT("-1: use the Value Scope component (default)\n")
+	TEXT(" 0: force clip percentages off\n")
+	TEXT(" 1: force clip percentages on, on every view"),
+	FConsoleVariableDelegate::CreateStatic(&OnValueScopeCVarChanged),
+	ECVF_Default);
+
 static FAutoConsoleCommand CmdValueScopeDumpHistogram(
 	TEXT("r.ValueScope.DumpHistogram"),
 	TEXT("Writes the latest luma histogram of each view to Saved/ValueScope as CSV (level,count). The histogram must be on."),
@@ -101,7 +110,7 @@ FValueScopeViewExtension::FValueScopeViewExtension(const FAutoRegister& AutoRegi
 {
 	// "Rendering" is on in every editor and game viewport, so the notice shows everywhere.
 	DebugDrawHandle = UDebugDrawService::Register(TEXT("Rendering"),
-		FDebugDrawDelegate::CreateRaw(this, &FValueScopeViewExtension::DrawOverrideNotice));
+		FDebugDrawDelegate::CreateRaw(this, &FValueScopeViewExtension::DrawCanvas));
 	GValueScopeExtension = this;
 }
 
@@ -114,12 +123,21 @@ FValueScopeViewExtension::~FValueScopeViewExtension()
 	}
 }
 
-void FValueScopeViewExtension::DrawOverrideNotice(UCanvas* Canvas, APlayerController* PC)
+void FValueScopeViewExtension::DrawCanvas(UCanvas* Canvas, APlayerController* PC)
+{
+	if (!Canvas || !Canvas->Canvas || !GEngine || GIsHighResScreenshot)
+	{
+		return;
+	}
+	DrawOverrideNotice(Canvas);
+	DrawClipPercentages(Canvas);
+}
+
+void FValueScopeViewExtension::DrawOverrideNotice(UCanvas* Canvas)
 {
 	// Console overrides beat the camera's component, which is easy to forget, so say so
 	// on screen while any are set. Follows DisableAllScreenMessages and stays out of HighResShot.
-	if (!Canvas || !Canvas->Canvas || !GEngine || !GAreScreenMessagesEnabled || GIsHighResScreenshot
-		|| CVarValueScopeOverrideMessage.GetValueOnGameThread() == 0)
+	if (!GAreScreenMessagesEnabled || CVarValueScopeOverrideMessage.GetValueOnGameThread() == 0)
 	{
 		return;
 	}
@@ -128,6 +146,7 @@ void FValueScopeViewExtension::DrawOverrideNotice(UCanvas* Canvas, APlayerContro
 	const int32 ForcedZebras = CVarValueScopeZebras.GetValueOnGameThread();
 	const int32 ForcedThirds = CVarValueScopeThirds.GetValueOnGameThread();
 	const int32 ForcedHistogram = CVarValueScopeHistogram.GetValueOnGameThread();
+	const int32 ForcedClipPercent = CVarValueScopeClipPercent.GetValueOnGameThread();
 
 	TArray<FString> Parts;
 	if (ForcedMode == 0)
@@ -150,6 +169,10 @@ void FValueScopeViewExtension::DrawOverrideNotice(UCanvas* Canvas, APlayerContro
 	{
 		Parts.Add(FString::Printf(TEXT("Histogram %d"), ForcedHistogram));
 	}
+	if (ForcedClipPercent >= 0)
+	{
+		Parts.Add(FString::Printf(TEXT("ClipPercent %d"), ForcedClipPercent));
+	}
 	if (Parts.Num() == 0)
 	{
 		return;
@@ -159,11 +182,78 @@ void FValueScopeViewExtension::DrawOverrideNotice(UCanvas* Canvas, APlayerContro
 		TEXT("Value Scope console override: %s. Set to -1 to use the camera's settings. Hide this: r.ValueScope.OverrideMessage 0"),
 		*FString::Join(Parts, TEXT(", ")));
 
-	// Top left, below the editor viewport toolbar.
-	const float DPIScale = Canvas->Canvas->GetDPIScale();
-	FCanvasTextItem Text(FVector2D(20.0f, 50.0f) * DPIScale, FText::FromString(Message), GEngine->GetSmallFont(), FLinearColor::Yellow);
-	Text.Scale = FVector2D(DPIScale);
+	// Top left, below the editor viewport toolbar. Canvas units already include the DPI scale.
+	FCanvasTextItem Text(FVector2D(20.0f, 50.0f), FText::FromString(Message), GEngine->GetSmallFont(), FLinearColor::Yellow);
 	Text.EnableShadow(FLinearColor::Black);
+	Canvas->DrawItem(Text);
+}
+
+void FValueScopeViewExtension::DrawClipPercentages(UCanvas* Canvas)
+{
+	const FSceneView* View = Canvas->SceneView;
+	if (!View || !View->State)
+	{
+		return;
+	}
+	const FValueScopeSettings* Settings = CanvasSettings.Find(View->State);
+	if (!Settings || !Settings->bClipPercentages)
+	{
+		return;
+	}
+
+	TArray<uint32> Bins;
+	{
+		FScopeLock Lock(&LatestLock);
+		const FHistogram* Histogram = Latest.Find(View->State);
+		if (!Histogram)
+		{
+			return; // First readback is still 2 to 3 frames away.
+		}
+		Bins = Histogram->Bins;
+	}
+
+	// Whole levels, same as the zebras and value_report.py.
+	const int32 BlackLevel = FMath::RoundToInt(Settings->BlackClip * 255.0f);
+	const int32 WhiteLevel = FMath::RoundToInt(Settings->WhiteClip * 255.0f);
+	uint64 Total = 0, Crushed = 0, Blown = 0;
+	for (int32 Level = 0; Level < Bins.Num(); ++Level)
+	{
+		Total += Bins[Level];
+		Crushed += Level <= BlackLevel ? Bins[Level] : 0;
+		Blown += Level >= WhiteLevel ? Bins[Level] : 0;
+	}
+	if (Total == 0)
+	{
+		return;
+	}
+
+	// Any clipping shows, even a sliver, so "0%" really means none.
+	auto Percent = [Total](uint64 Count)
+	{
+		const double Value = 100.0 * double(Count) / double(Total);
+		return Count == 0 ? FString(TEXT("0%")) : (Value < 0.1 ? FString(TEXT("under 0.1%")) : FString::Printf(TEXT("%.1f%%"), Value));
+	};
+
+	// Same panel rect as the shader, from the view rect, then into canvas units.
+	const FIntRect ViewRect = View->UnscaledViewRect;
+	const FIntPoint Size = ViewRect.Size();
+	const float Scale = FMath::Max(1.0f, FMath::RoundToFloat(Size.Y / 540.0f));
+	const float Width = Size.X * 0.30f;
+	const float Height = Width * 0.4f;
+	const float Left = ViewRect.Min.X + Size.X - 16.0f * Scale - Width;
+	const float Top = ViewRect.Min.Y + Size.Y * 0.06f + (Settings->bHistogram ? Height + 4.0f * Scale : 0.0f);
+	const float ToCanvas = 1.0f / Canvas->Canvas->GetDPIScale();
+
+	FCanvasTextItem Text(FVector2D(Left, Top) * ToCanvas,
+		FText::FromString(FString::Printf(TEXT("Crushed %s"), *Percent(Crushed))),
+		GEngine->GetSmallFont(), FLinearColor(0.45f, 0.7f, 1.0f));
+	Text.Scale = FVector2D(Scale * 0.5f); // 1 at 1080p, 2 at 4K
+	Text.EnableShadow(FLinearColor::Black);
+	Canvas->DrawItem(Text);
+
+	Text.Position = FVector2D(Left + Width * 0.5f, Top) * ToCanvas;
+	Text.Text = FText::FromString(FString::Printf(TEXT("Blown %s"), *Percent(Blown)));
+	Text.SetColor(FLinearColor(1.0f, 0.45f, 0.45f));
 	Canvas->DrawItem(Text);
 }
 
@@ -193,12 +283,14 @@ void FValueScopeViewExtension::SetupView(FSceneViewFamily& InViewFamily, FSceneV
 		Settings.bClipZebras = false;
 		Settings.bThirdsGuide = false;
 		Settings.bHistogram = false;
+		Settings.bClipPercentages = false;
 	}
 
 	const int32 ForcedMode = CVarValueScopeMode.GetValueOnGameThread();
 	const int32 ForcedZebras = CVarValueScopeZebras.GetValueOnGameThread();
 	const int32 ForcedThirds = CVarValueScopeThirds.GetValueOnGameThread();
 	const int32 ForcedHistogram = CVarValueScopeHistogram.GetValueOnGameThread();
+	const int32 ForcedClipPercent = CVarValueScopeClipPercent.GetValueOnGameThread();
 
 	if (ForcedMode == 0)
 	{
@@ -226,12 +318,26 @@ void FValueScopeViewExtension::SetupView(FSceneViewFamily& InViewFamily, FSceneV
 			Settings.bHistogram = ForcedHistogram != 0;
 			bActive = true;
 		}
+		if (ForcedClipPercent >= 0)
+		{
+			Settings.bClipPercentages = ForcedClipPercent != 0;
+			bActive = true;
+		}
 	}
 
 	// Views without a state (some scene captures) have no stable key, so they get no overlay.
 	if (!InView.State)
 	{
 		return;
+	}
+
+	if (bActive && Settings.IsActive())
+	{
+		CanvasSettings.Add(InView.State, Settings);
+	}
+	else
+	{
+		CanvasSettings.Remove(InView.State);
 	}
 
 	FScopeLock Lock(&PendingLock);
@@ -295,8 +401,9 @@ FScreenPassTexture FValueScopeViewExtension::AfterTonemap_RenderThread(FRDGBuild
 	}
 
 	// Measured from the untouched image, before any overlay draws over it.
+	// The clip percentages read the same histogram, so either one turns it on.
 	FRDGBufferRef HistogramBuffer = nullptr;
-	if (Settings.bHistogram)
+	if (Settings.bHistogram || Settings.bClipPercentages)
 	{
 		const FString Source = FString::Printf(TEXT("in %s, out %s, %s"),
 			GetPixelFormatString(SceneColor.Texture->Desc.Format),
@@ -322,7 +429,8 @@ FScreenPassTexture FValueScopeViewExtension::AfterTonemap_RenderThread(FRDGBuild
 
 	FGlobalShaderMap* ShaderMap = GetGlobalShaderMap(View.GetFeatureLevel());
 
-	if (HistogramBuffer)
+	const bool bHistogramPanel = HistogramBuffer && Settings.bHistogram;
+	if (bHistogramPanel)
 	{
 		// Height reference for the panel: tallest bin in levels 1 to 254.
 		FRDGBufferRef MaxBuffer = GraphBuilder.CreateBuffer(
@@ -349,7 +457,7 @@ FScreenPassTexture FValueScopeViewExtension::AfterTonemap_RenderThread(FRDGBuild
 	}
 
 	FValueScopePS::FPermutationDomain Permutation;
-	Permutation.Set<FValueScopePS::FHistogramDim>(HistogramBuffer != nullptr);
+	Permutation.Set<FValueScopePS::FHistogramDim>(bHistogramPanel);
 	TShaderMapRef<FValueScopePS> PixelShader(ShaderMap, Permutation);
 
 	FPixelShaderUtils::AddFullscreenPass(
