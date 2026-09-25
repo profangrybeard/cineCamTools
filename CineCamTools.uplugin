@@ -1,0 +1,24 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1",
+	"FriendlyName": "CineCam Tools",
+	"Description": "Camera tools for lighting and composition study. First tool: Value Scope, post-tonemap value overlays.",
+	"Category": "Rendering",
+	"CreatedBy": "SCAD ITGM/GAME",
+	"EngineVersion": "5.8.0",
+	"CanContainContent": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "CineCamToolsShaders",
+			"Type": "Runtime",
+			"LoadingPhase": "PostConfigInit"
+		},
+		{
+			"Name": "CineCamTools",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}

@@ -1,0 +1,50 @@
+// Value Scope. Runs after Tonemap, so values are display encoded (0..1 = 0..255),
+// the same scale a Photoshop histogram reads.
+
+#include "/Engine/Public/Platform.ush"
+#include "/Engine/Private/Common.ush"
+#include "/Engine/Private/ScreenPass.ush"
+
+SCREEN_PASS_TEXTURE_VIEWPORT(Input)
+SCREEN_PASS_TEXTURE_VIEWPORT(Output)
+
+Texture2D InputTexture;
+SamplerState InputSampler;
+
+int Mode;               // 0 off, 1 plumbing check, 2 notan
+float2 NotanThresholds;
+
+// Photoshop Luminosity histogram weights. Keep in sync with Tools/value_report.py.
+float Luma(float3 C)
+{
+	return dot(C, float3(0.30, 0.59, 0.11));
+}
+
+void MainPS(float4 SvPosition : SV_POSITION, out float4 OutColor : SV_Target0)
+{
+	const float2 PixelPos = SvPosition.xy - Output_ViewportMin;
+	float2 UV = PixelPos * Output_ViewportSizeInverse;
+	UV = Input_UVViewportMin + UV * Input_UVViewportSize;
+
+	const float4 Src = Texture2DSample(InputTexture, InputSampler, UV);
+	float3 Result = Src.rgb;
+
+	if (Mode == 1)
+	{
+		// Plumbing check: image passes through untouched, with a magenta frame
+		// exactly on the view rect edges. A clipped or offset frame means the
+		// viewport mapping is wrong.
+		const float2 FromEdge = min(PixelPos, Output_ViewportSize - PixelPos);
+		if (min(FromEdge.x, FromEdge.y) < 6.0)
+		{
+			Result = float3(1.0, 0.0, 1.0);
+		}
+	}
+	else if (Mode == 2)
+	{
+		const float L = saturate(Luma(Src.rgb));
+		Result = L < NotanThresholds.x ? 0.0 : (L > NotanThresholds.y ? 1.0 : 0.5);
+	}
+
+	OutColor = float4(Result, Src.a);
+}

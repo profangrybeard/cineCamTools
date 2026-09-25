@@ -1,0 +1,32 @@
+#pragma once
+
+#include "CoreMinimal.h"
+#include "SceneViewExtension.h"
+#include "ValueScopeComponent.h"
+
+struct FPostProcessMaterialInputs;
+struct FScreenPassTexture;
+class FRDGBuilder;
+
+class FValueScopeViewExtension : public FSceneViewExtensionBase
+{
+public:
+	FValueScopeViewExtension(const FAutoRegister& AutoRegister);
+
+	// Game thread
+	virtual void SetupViewFamily(FSceneViewFamily& InViewFamily) override {}
+	virtual void SetupView(FSceneViewFamily& InViewFamily, FSceneView& InView) override;
+	virtual void BeginRenderViewFamily(FSceneViewFamily& InViewFamily) override {}
+
+	// Render thread
+	virtual void SubscribeToPostProcessingPass(EPostProcessingPass Pass, const FSceneView& InView,
+		FAfterPassCallbackDelegateArray& InOutPassCallbacks, bool bIsPassEnabled) override;
+
+private:
+	FScreenPassTexture AfterTonemap_RenderThread(FRDGBuilder& GraphBuilder, const FSceneView& View,
+		const FPostProcessMaterialInputs& Inputs, FValueScopeSettings Settings);
+
+	// Settings resolved on the game thread in SetupView, consumed once on the render thread.
+	FCriticalSection PendingLock;
+	TMap<const FSceneView*, FValueScopeSettings> Pending;
+};

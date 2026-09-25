@@ -1,0 +1,27 @@
+# Unreal build output
+Binaries/
+Intermediate/
+Saved/
+DerivedDataCache/
+*.pdb
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.sln
+*.suo
+*.VC.db
+*.opensdf
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Tool output
+previews/
+
+# OS
+.DS_Store
+Thumbs.db
