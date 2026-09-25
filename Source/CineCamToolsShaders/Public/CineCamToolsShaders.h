@@ -19,6 +19,10 @@ public:
 	DECLARE_GLOBAL_SHADER(FValueScopePS);
 	SHADER_USE_PARAMETER_STRUCT(FValueScopePS, FGlobalShader);
 
+	// Histogram panel on or off. Off compiles the panel out, so its buffers needn't be bound.
+	class FHistogramDim : SHADER_PERMUTATION_BOOL("VALUE_SCOPE_HISTOGRAM");
+	using FPermutationDomain = TShaderPermutationDomain<FHistogramDim>;
+
 	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
 		SHADER_PARAMETER_STRUCT(FScreenPassTextureViewportParameters, Input)
 		SHADER_PARAMETER_STRUCT(FScreenPassTextureViewportParameters, Output)
@@ -29,6 +33,9 @@ public:
 		SHADER_PARAMETER(FVector2f, ClipLevels)      // x = black clip, y = white clip
 		SHADER_PARAMETER(int32, ClipZebras)
 		SHADER_PARAMETER(int32, ThirdsGuide)
+		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<uint>, HistogramIn)
+		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<uint>, HistogramMax)
+		SHADER_PARAMETER(FVector4f, HistogramRect)   // panel min x, min y, width, height, in view pixels
 		RENDER_TARGET_BINDING_SLOTS()
 	END_SHADER_PARAMETER_STRUCT()
 
@@ -65,5 +72,23 @@ public:
 	{
 		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
 		OutEnvironment.SetDefine(TEXT("THREADGROUP_SIZE"), GroupSize);
+	}
+};
+
+// Tallest histogram bin in levels 1 to 254, the panel's height reference. One group of 256 threads.
+class CINECAMTOOLSSHADERS_API FValueScopeHistogramMaxCS : public FGlobalShader
+{
+public:
+	DECLARE_GLOBAL_SHADER(FValueScopeHistogramMaxCS);
+	SHADER_USE_PARAMETER_STRUCT(FValueScopeHistogramMaxCS, FGlobalShader);
+
+	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<uint>, HistogramIn)
+		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<uint>, HistogramMaxOut)
+	END_SHADER_PARAMETER_STRUCT()
+
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
+	{
+		return IsFeatureLevelSupported(Parameters.Platform, ERHIFeatureLevel::SM5);
 	}
 };

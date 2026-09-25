@@ -72,6 +72,40 @@ void HistogramCS(uint3 DispatchThreadId : SV_DispatchThreadID, uint GroupIndex :
 	}
 }
 
+Buffer<uint> HistogramIn;
+Buffer<uint> HistogramMax;
+RWBuffer<uint> HistogramMaxOut;
+groupshared uint SharedMax;
+
+// Tallest bin in levels 1 to 254. 0 and 255 are left out so a clipped spike can't
+// flatten the rest; the panel marks them separately.
+[numthreads(256, 1, 1)]
+void HistogramMaxCS(uint GroupIndex : SV_GroupIndex)
+{
+	if (GroupIndex == 0)
+	{
+		SharedMax = 0;
+	}
+	GroupMemoryBarrierWithGroupSync();
+
+	if (GroupIndex >= 1 && GroupIndex <= 254)
+	{
+		InterlockedMax(SharedMax, HistogramIn[GroupIndex]);
+	}
+	GroupMemoryBarrierWithGroupSync();
+
+	if (GroupIndex == 0)
+	{
+		HistogramMaxOut[0] = SharedMax;
+	}
+}
+
+#ifndef VALUE_SCOPE_HISTOGRAM
+#define VALUE_SCOPE_HISTOGRAM 0
+#endif
+
+float4 HistogramRect; // panel min x, min y, width, height, in view pixels
+
 void MainPS(float4 SvPosition : SV_POSITION, out float4 OutColor : SV_Target0)
 {
 	const float2 PixelPos = SvPosition.xy - Output_ViewportMin;
@@ -122,6 +156,45 @@ void MainPS(float4 SvPosition : SV_POSITION, out float4 OutColor : SV_Target0)
 			Result = lerp(Result, Line, 0.7);
 		}
 	}
+
+#if VALUE_SCOPE_HISTOGRAM
+	{
+		// Histogram panel, drawn over everything else. Levels run left to right, 0 to 255.
+		const float2 P = (PixelPos - HistogramRect.xy) / HistogramRect.zw;
+		if (all(P >= 0.0) && all(P < 1.0))
+		{
+			Result *= 0.3; // Dim backing, so bars read over any image.
+
+			// Faint guides at levels 64, 128 and 192.
+			const float Quarter = P.x * 4.0;
+			if (abs(Quarter - round(Quarter)) * HistogramRect.z * 0.25 < 0.5 * Scale && Quarter > 0.5 && Quarter < 3.5)
+			{
+				Result = lerp(Result, 0.5, 0.35);
+			}
+
+			const uint Level = min(255u, (uint)(P.x * 256.0));
+			const uint Count = HistogramIn[Level];
+			const float Tallest = max(1.0, (float)HistogramMax[0]);
+			const float Up = 1.0 - P.y; // 0 at the bottom edge
+			if (Up < saturate(Count / Tallest))
+			{
+				// Clipped levels in the zebra colors.
+				Result = Level == 0 ? float3(0.0, 0.4, 1.0) : (Level == 255 ? float3(1.0, 0.0, 0.0) : float3(0.85, 0.85, 0.85));
+			}
+
+			// Edge strips whenever anything is clipped, since a 1-level bar is thin.
+			const float Strip = 3.0 * Scale / HistogramRect.z;
+			if (P.x < Strip && HistogramIn[0] > 0)
+			{
+				Result = float3(0.0, 0.4, 1.0);
+			}
+			else if (P.x > 1.0 - Strip && HistogramIn[255] > 0)
+			{
+				Result = float3(1.0, 0.0, 0.0);
+			}
+		}
+	}
+#endif
 
 	if (Mode == 1)
 	{

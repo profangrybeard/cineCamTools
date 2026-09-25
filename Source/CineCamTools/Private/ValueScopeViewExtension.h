@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "RenderGraphFwd.h"
 #include "SceneViewExtension.h"
 #include "ValueScopeComponent.h"
 
@@ -48,8 +49,8 @@ public:
 	void DumpHistograms();
 
 private:
-	// Render thread. Builds this frame's histogram and queues its copy back to the CPU.
-	void AddHistogramPass(FRDGBuilder& GraphBuilder, const FSceneView& View, const FScreenPassTexture& SceneColor, bool bHighResShot, const FString& Source);
+	// Render thread. Builds this frame's histogram, queues its copy back to the CPU, and returns it for the panel.
+	FRDGBufferRef AddHistogramPass(FRDGBuilder& GraphBuilder, const FSceneView& View, const FScreenPassTexture& SceneColor, bool bHighResShot, const FString& Source);
 
 	// A few copies in flight per view, since each takes 2 to 3 frames to reach the CPU.
 	static constexpr int32 NumReadbackSlots = 4;

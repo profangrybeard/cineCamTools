@@ -295,13 +295,14 @@ FScreenPassTexture FValueScopeViewExtension::AfterTonemap_RenderThread(FRDGBuild
 	}
 
 	// Measured from the untouched image, before any overlay draws over it.
+	FRDGBufferRef HistogramBuffer = nullptr;
 	if (Settings.bHistogram)
 	{
 		const FString Source = FString::Printf(TEXT("in %s, out %s, %s"),
 			GetPixelFormatString(SceneColor.Texture->Desc.Format),
 			GetPixelFormatString(Output.Texture->Desc.Format),
 			Inputs.OverrideOutput.IsValid() ? TEXT("ours is the last pass") : TEXT("other passes follow ours"));
-		AddHistogramPass(GraphBuilder, View, SceneColor, bHighResShot, Source);
+		HistogramBuffer = AddHistogramPass(GraphBuilder, View, SceneColor, bHighResShot, Source);
 	}
 
 	const FScreenPassTextureViewport InputViewport(SceneColor);
@@ -320,7 +321,36 @@ FScreenPassTexture FValueScopeViewExtension::AfterTonemap_RenderThread(FRDGBuild
 	Params->RenderTargets[0] = Output.GetRenderTargetBinding();
 
 	FGlobalShaderMap* ShaderMap = GetGlobalShaderMap(View.GetFeatureLevel());
-	TShaderMapRef<FValueScopePS> PixelShader(ShaderMap);
+
+	if (HistogramBuffer)
+	{
+		// Height reference for the panel: tallest bin in levels 1 to 254.
+		FRDGBufferRef MaxBuffer = GraphBuilder.CreateBuffer(
+			FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), 1), TEXT("ValueScope.HistogramMax"));
+		FRDGBufferSRVRef HistogramSRV = GraphBuilder.CreateSRV(HistogramBuffer, PF_R32_UINT);
+
+		FValueScopeHistogramMaxCS::FParameters* MaxParams = GraphBuilder.AllocParameters<FValueScopeHistogramMaxCS::FParameters>();
+		MaxParams->HistogramIn = HistogramSRV;
+		MaxParams->HistogramMaxOut = GraphBuilder.CreateUAV(MaxBuffer, PF_R32_UINT);
+		FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("ValueScope HistogramMax"),
+			TShaderMapRef<FValueScopeHistogramMaxCS>(ShaderMap), MaxParams, FIntVector(1, 1, 1));
+
+		// Top right, 30% of view width, Photoshop's 256 x 100 proportions. The top margin
+		// clears the editor viewport toolbar, which sits over the view.
+		const FIntPoint ViewSize = Output.ViewRect.Size();
+		const float Scale = FMath::Max(1.0f, FMath::RoundToFloat(ViewSize.Y / 540.0f));
+		const float Width = ViewSize.X * 0.30f;
+		const float Height = Width * 0.4f;
+		const float Side = 16.0f * Scale;
+		const float Top = ViewSize.Y * 0.06f;
+		Params->HistogramIn = HistogramSRV;
+		Params->HistogramMax = GraphBuilder.CreateSRV(MaxBuffer, PF_R32_UINT);
+		Params->HistogramRect = FVector4f(ViewSize.X - Side - Width, Top, Width, Height);
+	}
+
+	FValueScopePS::FPermutationDomain Permutation;
+	Permutation.Set<FValueScopePS::FHistogramDim>(HistogramBuffer != nullptr);
+	TShaderMapRef<FValueScopePS> PixelShader(ShaderMap, Permutation);
 
 	FPixelShaderUtils::AddFullscreenPass(
 		GraphBuilder,
@@ -333,7 +363,7 @@ FScreenPassTexture FValueScopeViewExtension::AfterTonemap_RenderThread(FRDGBuild
 	return FScreenPassTexture(Output);
 }
 
-void FValueScopeViewExtension::AddHistogramPass(FRDGBuilder& GraphBuilder, const FSceneView& View, const FScreenPassTexture& SceneColor, bool bHighResShot, const FString& Source)
+FRDGBufferRef FValueScopeViewExtension::AddHistogramPass(FRDGBuilder& GraphBuilder, const FSceneView& View, const FScreenPassTexture& SceneColor, bool bHighResShot, const FString& Source)
 {
 	constexpr int32 NumBins = FValueScopeHistogramCS::NumBins;
 	constexpr uint32 NumBytes = NumBins * sizeof(uint32);
@@ -411,6 +441,8 @@ void FValueScopeViewExtension::AddHistogramPass(FRDGBuilder& GraphBuilder, const
 		Slot.Source = Source;
 		ViewReadbacks.Next = (Chosen + 1) % NumReadbackSlots;
 	}
+
+	return HistogramBuffer;
 }
 
 void FValueScopeViewExtension::DumpHistograms()

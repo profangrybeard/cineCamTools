@@ -91,7 +91,17 @@ Full editor restart after building (new UPROPERTYs and shader params, Live Codin
 - [x] Game View (G), nothing selected, histogram still on (it doesn't change the image): `HighResShot 1`, then `r.ValueScope.DumpHistogram`. Dump line says "ours is the last pass". Compare the `_highresshot.csv` (same frame as the PNG): `python Tools\value_report.py <shot> --compare-histogram <csv>` shows about 100%. Result: CSVs byte-identical, 100.00% (binning is whole-number math on both sides: (30R + 59G + 11B + 50) / 100; float math split the exact .5 ties). Live dumps are other frames; Lumen and temporal noise move pixels 1 or 2 levels per frame, so those only reach 92 to 97% in dark flat scenes.
 - [x] `package_plugin.bat` passes.
 
-2.2 histogram panel, 2.3 clip text, 2.4 waveform: checklists written when each starts.
+2.2 histogram panel (drawn by the overlay pass from the same frame's buffer; `HistogramMaxCS` finds the tallest bin in 1 to 254; `VALUE_SCOPE_HISTOGRAM` permutation compiles the panel out when off):
+
+- [x] Build clean, editor opens, no `ValueScope.usf` errors.
+- [x] `r.ValueScope.Histogram 1`: panel top right, dim backing, clear of the viewport toolbar, faint lines at 64 / 128 / 192. Screen Percentage 50: same place and size.
+- [x] Photoshop check: Game View, `r.ValueScope.Histogram 0`, `HighResShot 1`. Open the PNG in Photoshop, Histogram panel, Luminosity. Same shape as the in-engine panel (Photoshop may scale height differently when 0 or 255 spike). Also read back from shot 11: panel bars vs script histogram, same peak level, correlation 0.9987.
+- [x] Clip markers: raise exposure until something blows out, red bar and red strip at the right edge. Lower it, blue at the left. Reset exposure.
+- [x] With `r.ValueScope.Mode 2` or `3`, zebras and thirds on: panel draws on top, and its shape doesn't change (it measures the image, not the overlay).
+- [x] Component: Histogram on the CineCamera's Value Scope, PIE through it: panel shows.
+- [x] `package_plugin.bat` passes.
+
+2.3 clip text, 2.4 waveform: checklists written when each starts.
 
 ## Rules that should not drift
 

@@ -16,8 +16,9 @@ Overlays (turn on with any mode, including Off):
 
 - **Clip zebras.** Red stripes where the image is blown to white, blue stripes where it is crushed to black. Detail under the stripes is gone and can't be brought back in Photoshop. Zone X in false color only means near white (level 232 and up). Only the zebras show real clipping (level 250 and up, or 5 and down).
 - **Thirds guide.** Rule of thirds lines for checking composition.
+- **Histogram.** Top right. The same luma histogram Photoshop shows in its Histogram panel (Luminosity), measured from the frame before any overlay. Black on the left, white on the right. Pure black (0) and pure white (255) show in blue and red, with a colored strip at that edge whenever anything clips. Their height doesn't set the scale, so a clipped spike can't flatten the rest.
 
-A histogram comes later.
+A waveform and on-screen clip percentages come later.
 
 ## Use
 
@@ -29,6 +30,7 @@ A histogram comes later.
    - `r.ValueScope.Mode 3` false color
    - `r.ValueScope.Zebras 1` clip zebras, `0` to turn off
    - `r.ValueScope.Thirds 1` thirds guide, `0` to turn off
+   - `r.ValueScope.Histogram 1` histogram, `0` to turn off
    - `r.ValueScope.Mode 0` everything off
    - `-1` on any of these goes back to per-camera
 
