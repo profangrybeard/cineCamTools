@@ -2,328 +2,64 @@
 
 Unreal Engine 5.8 plugin of camera tools for teaching lighting, value and composition at SCAD ITGM/GAME. First tool is **Value Scope**: overlays drawn on the final, post-tonemap image so students judge value in engine the way they'd judge it with a Photoshop histogram.
 
+**Version 1.0** (tag `v1.0`) is everything through step 4.3. Read these as needed:
+
+| File | What's in it |
+|---|---|
+| `docs/DECISIONS.md` | Every decision Tim made, dated, by step, and the engine facts we had to find out |
+| `docs/ARCHITECTURE.md` | Paths, layout, how a frame gets its overlay, editor hooks, shared math, cvars, build, known risks |
+| `docs/BACKLOG.md` | Feature requests (FR-NNN) and the 1.1 plan |
+| `docs/CHANGELOG.md` | What each version added, in plain words |
+| `docs/checklists/1.0.md` | Every 1.0 checklist as tested |
+| `README.md` | Student-facing |
+
 ## Where we left off (2026-09-26)
 
-- 3.1 and the pilot fix are committed and pushed (`d684851`).
-- 3.2 presets is committed and pushed (`3e7bd28`).
-- Step 3 is done and pushed (`3ea53d1`).
-- Step 4 (spot meter) agreed 2026-09-26, see "Step 4 checklist". 4.1 HDR notice (plus toolbar label fix) is committed and pushed (`7eb65b0`); two checks skipped for lack of an HDR display.
-- 4.2 live spot meter is committed and pushed (`404a9c2`).
-- 4.3 pins passed on 2026-09-26 (with Alt+M bound by hand; default changed from Ctrl+Alt+M to Alt+M after) and is committed and pushed ("Value Scope step 4.3: spot meter pins"). Step 4 is done. Next: ask Tim what step 5 is; nothing is planned yet.
-- 3.2 design (agreed 2026-09-26): Preset row at the top of the component's Value Scope category, Apply Preset dropdown (built-ins, then every `UValueScopePreset` asset) and Save as Preset button; new editor module `CineCamToolsEditor` (3.3's toolbar goes there too).
-
-  | Preset | Mode | Overlays |
-  |---|---|---|
-  | Notan | Notan (0.25 / 0.75) | none |
-  | Value Check | False Color | Histogram |
-  | Exposure | Off | Clip Zebras, Histogram, Clip Percentages, Waveform |
-  | Composition | Notan | Thirds Guide |
+- 1.0 is done: docs split, `VersionName` 1.0, committed, tagged `v1.0` and pushed.
+- Next: Tim adds feature requests to `docs/BACKLOG.md` as they come up. We discuss them, then pick a 1.1 plan from them. Nothing is planned for 1.1 yet.
 
 ## Working with Tim
 
 - Tim teaches at SCAD and tests every step himself in the editor. He says "go" before any new step; discuss, diagram and agree on each step's design first.
-- Commit and push only when he asks ("commit it", "push it", "commit and push"). End commit messages with the Co-Authored-By line.
+- Commit and push only when he asks ("commit it", "push it", "commit and push"). Don't offer to commit on your own. End commit messages with the Co-Authored-By line.
 - The build refuses to run while the editor is open (Live Coding). Check first (`Get-Process UnrealEditor`); if it's running, ask Tim to close it, and he replies "editor closed, build it". Shader-only (`.usf`) changes don't need a rebuild: `recompileshaders changed` in the editor console.
-- Run `package_plugin.bat` in the background after each build; the monolithic game build catches things the editor build hides.
+- Run `package_plugin.bat` in the background after each build; the monolithic game build catches things the editor build hides. Don't edit source while it runs, and commit only after it passes.
 - Keep answers short and plain. No em-dashes anywhere students read.
+
+## Backlog
+
+- When Tim (or a student through him) asks for something that isn't the current step, add it to `docs/BACKLOG.md` with the next FR number and status "new". Don't start it.
+- When we discuss an entry, update its Notes with what was decided and the date, and its Status and Size.
+- Never delete an entry. A "no" keeps its reason.
+- Planning 1.1: pull entries into the "1.1 plan" section as steps, with a design talk, a checklist in `docs/checklists/1.1.md`, and a commit per step, like 1.0. Record decisions in `docs/DECISIONS.md`. Bump `Version` in the uplugin to 2 and `VersionName` to "1.1" when 1.1 ships, add a CHANGELOG entry, and tag `v1.1` when Tim says.
 
 ## How we verify
 
-- HighResShot pairs: `HighResShot 1` writes `C:\_projects\pluginWorkbench\Saved\Screenshots\WindowsEditor\HighresScreenshot000NN.png`. Tim reports the number; compare against `value_report.py` (notan, false color, clip %, `--compare-histogram`).
+- HighResShot: `HighResShot 1` writes `C:\_projects\pluginWorkbench\Saved\Screenshots\WindowsEditor\HighresScreenshot000NN.png` (with the High Resolution Screenshot window it can be `HighresScreenshot_<date-time>.png`). Tim reports the file; compare against `value_report.py` (notan, false color, clip %, `--compare-histogram`).
 - `r.ValueScope.DumpHistogram` writes `Saved/ValueScope/*.csv`, including `_highresshot.csv` for the HighResShot frame itself. Byte-identical to `value_report.py --histogram-csv` of that PNG in Game View.
 - Read the editor log directly: `C:\_projects\pluginWorkbench\Saved\Logs\pluginWorkbench.log` (commands show as `Cmd:`; ours log as `LogValueScope`).
-- Panels bake into HighResShot, so a shot shows exactly what was drawn. Canvas text (notice, clip %) does not.
+- Toolbar settings are saved in `C:\_projects\pluginWorkbench\Saved\Config\WindowsEditor\EditorPerProjectUserSettings.ini`, section `ValueScopeEditorSettings`: read it when what's drawn doesn't match what Tim expects.
+- Panels bake into HighResShot, so a shot shows exactly what was drawn. Canvas text and the spot meter do not.
 
 ## Gotchas learned
 
 - Tim's window screenshot tool makes canvas text vanish (focus change). Not a bug; ask him to read numbers off the screen instead.
 - Exact histogram comparisons need Game View (G) with nothing selected: in editor viewports with icons, the editor primitive composite runs after our hook and changes pixels (dump line says "other passes follow ours").
 - Two live frames of the same camera differ by Lumen and temporal noise (about 0.2 levels), so only same-frame comparisons can be exact.
-- `r.ValueScope.Mode 0` turns everything off, the component included. When "the component does nothing", check the log for a leftover cvar.
+- `r.ValueScope.Mode 0` turns everything off, the component and toolbar included. When "the component does nothing", check the log for a leftover cvar.
 - Clipping only happens at level 250 and up (or 5 and down); a bright-looking frame often isn't clipped because the tonemapper rolls highlights off. Zone X in false color starts at 232.
 - CineCameraActor hides Auto Activate for Player; use Level Blueprint BeginPlay > Get Player Controller > Set View Target with Blend.
-- The shell here mangles backslashes and quotes in heredocs. For multi-line code edits, write a Python patch script to the scratchpad with the Write tool and run it, or use the Edit tool.
-
-## Current goal: roadmap, step 5 (not planned yet)
-
-Plumbing and steps 1 to 4 are done. Ask Tim what step 5 is; discuss and diagram it before any code. Ideas already raised in the step 4 discussion: reference compare, class handoff sheet, composition overlays, color scope.
-
-Step 4 decisions (Tim, 2026-09-26):
-
-- HDR output: turn every value tool off (modes, zebras, histogram, clip %, waveform, meter), keep the thirds guide and plumbing frame (geometry only), canvas notice bottom left above the override notice, log once. Wrong numbers teach the wrong thing.
-- Spot meter samples the cursor in editor viewports, the frame center otherwise (PIE, games, cursor elsewhere). Fixed box, about 9x9 px at 1080p, scaled with view height. Averages `LumaLevel()`. Readout is level and zone, canvas only, never baked. `bSpotMeter` on the component (keyable), toolbar menu, `r.ValueScope.SpotMeter`. No built-in preset turns it on. Cursor reaches the runtime module through an editor hook, like the toolbar resolver.
-- Pins: up to 4 (A to D), per viewport, not saved, live. Differences from A in levels and zones, never stops (that would need pre-tonemap light). Pinned with a rebindable editor command "Pin Spot Meter Point", default Alt+M, plus Pin and Clear Pins in the toolbar menu.
-
-Step 3 decisions (Tim, 2026-09-25):
-
-- Who decides what a view shows, first match wins: console cvars (yellow notice), then the Value Scope component on the view target (fed by Sequencer keys and applied presets), then the editor toolbar (level editor viewports only; never material editor, thumbnails or previews).
-- Piloting a camera that has a component: the component wins, so it matches PIE. The toolbar covers the free viewport.
-- Presets are copied into the component when chosen (editable and keyable after), not linked live. Built-in presets live in code (Notan, Value Check, Exposure, Composition); teachers can make their own as `UValueScopePreset` data assets.
-- Toolbar: its own settings layer (not the cvars), one setting shared by all level viewports, remembered between sessions. Lives in a new editor-only module `CineCamToolsEditor`, extending `LevelEditor.ViewportToolbar`.
-
-Step 2 decisions (Tim, 2026-09-25):
-
-- Histogram and waveform are luma only (Photoshop Luminosity). RGB is later, if ever.
-- Histogram height scales to the tallest bin in 1 to 254. Levels 0 and 255 draw as clip markers so a spike there can't flatten the rest.
-- Histogram panel top right, waveform top left. About 30% of view width, scaled by view height, dim backing, top margin clear of the editor viewport toolbar. The override notice moves to bottom left so the waveform doesn't cover it.
-- Panels are drawn by the overlay pass, so they bake into HighResShot and Movie Render Queue like zebras. Clip % text is canvas (from GPU readback), so it doesn't. That split is fine.
-- Waveform: image columns across, levels 0 to 255 up, brightness = pixel count.
-- Component toggles Histogram, Clip Percentages, Waveform, each with an `r.ValueScope.*` cvar the override notice reports.
-
-## Paths
-
-| What | Path |
-|---|---|
-| This repo (the plugin root) | `C:\SCAD\Projects\cineCamTools` |
-| Workbench host project (UE 5.8.3, C++) | `C:\_projects\pluginWorkbench` |
-| Plugin inside workbench (junction to this repo) | `C:\_projects\pluginWorkbench\Plugins\CineCamTools` |
-| Engine | `%UE_ROOT%`, default `C:\Program Files\Epic Games\UE_5.8` |
-
-The workbench is only a host. Never edit plugin files through the workbench path and never commit workbench files here. If the workbench has its own git repo, its `.gitignore` should exclude `Plugins/`.
-
-## Layout
-
-```
-CineCamTools.uplugin
-Source/CineCamToolsShaders/   PostConfigInit. Shader dir mapping; FValueScopePS (permutations
-                              VALUE_SCOPE_HISTOGRAM, VALUE_SCOPE_WAVEFORM), FValueScopeHistogramCS,
-                              FValueScopeHistogramMaxCS, FValueScopeWaveformCS.
-Source/CineCamTools/          Default. UValueScopeComponent (+ built-in presets), UValueScopePreset,
-                              FValueScopeViewExtension, module.
-Source/CineCamToolsEditor/    Editor only. FValueScopeComponentDetails (preset picker, Save as Preset),
-                              ValueScopePresetList (the one preset list both menus use),
-                              UValueScopeEditorSettings + ValueScopeToolbar (level viewport toolbar).
-Shaders/Private/ValueScope.usf  All shader entry points: MainPS, HistogramCS, HistogramMaxCS, WaveformCS.
-Tools/value_report.py         CPU reference for the shader math, runs on a PNG.
-Scripts/                      link_workbench.bat, build_workbench.bat, package_plugin.bat
-Config/FilterPlugin.ini       Stock template from BuildPlugin, nothing listed yet.
-```
-
-## How it works
-
-1. `UValueScopeComponent` sits on a CineCameraActor and holds `FValueScopeSettings` (all `Interp`, so Sequencer can key them).
-2. `FValueScopeViewExtension::BeginRenderViewFamily` (game thread, per view via `ResolveView`; not `SetupView`, see "Resolved") reads the component off `InView.ViewActor` (a component wins even when disabled); with no component, asks the editor resolver (`ValueScopeEditorHook.h`, set by `CineCamToolsEditor`) whether the view's State is a level viewport client's ViewState and the toolbar is on; then applies the `r.ValueScope.*` cvar overrides, and stores settings in `Pending` (plus a HighResShot flag from `GIsHighResScreenshot`) keyed by the view's `State` pointer. It also keeps a game-thread copy in `CanvasSettings` for the canvas text.
-3. `SubscribeToPostProcessingPass` (render thread) takes those settings for `EPostProcessingPass::Tonemap` and adds `AfterTonemap_RenderThread`.
-4. That callback, in order: `HistogramCS` (if Histogram or Clip Percentages; queues a GPU readback into a 4-slot ring per view), `HistogramMaxCS` (if the histogram panel is on), `WaveformCS` (if Waveform), then `FValueScopePS` full screen, which draws the mode, zebras, thirds, waveform panel, histogram panel and plumbing frame. If `Inputs.OverrideOutput` is valid it must write there, because it's the backbuffer when Tonemap is the last pass.
-5. Canvas text goes through `UDebugDrawService` ("Rendering" show flag, so every editor and game viewport): the console override notice (bottom left) and the clip percentages (under the histogram panel, from the latest readback). Canvas units are pixels / DPI. Skipped during HighResShot.
-6. Cvar changes broadcast `FEditorSupportDelegates::RedrawAllViewports` so non-Realtime editor viewports repaint.
-
-Shared math: `LumaLevel()` in the shader is the one definition of a pixel's level 0 to 255: quantize to 8 bits, then (30R + 59G + 11B + 50) / 100. Histogram, waveform, zebras and clip percentages all use it; `value_report.py` uses the same formula.
-
-Modes: 0 off, 1 plumbing check (image untouched, 6px magenta frame on the view rect edges), 2 notan, 3 false color (11 zones, palette shared with `value_report.py`).
-
-Spot meter (step 4.2): canvas box at the cursor (editor) or frame center (PIE, games), readout "level  Zone N" from `SpotMeterCS` via a readback ring, 2 to 3 frames late. Never baked.
-
-Overlays, on top of any mode including Off: clip zebras (diagonal stripes, red at or above White Clip, blue at or below Black Clip, tested on the source luma) and the thirds guide. Stripe period and line width scale with view height (1x per 540 px).
-
-Cvars: `r.ValueScope.Mode` -1 component, 0 everything off, 1 to 3 force mode. `r.ValueScope.Zebras`, `r.ValueScope.Thirds`, `r.ValueScope.Histogram`, `r.ValueScope.ClipPercent`, `r.ValueScope.Waveform` and `r.ValueScope.SpotMeter` -1 component, 0 force off, 1 force on. `r.ValueScope.DumpHistogram` writes each view's latest histogram (from the GPU readback) to `Saved/ValueScope/*.csv`. With no component on the view target, only what a cvar forces is drawn. While any override is set, a yellow on-screen notice says so (`r.ValueScope.OverrideMessage 0` hides it, and so does `DisableAllScreenMessages`; it never shows in HighResShot).
-
-## Build
-
-- Day to day: `Scripts\build_workbench.bat`. Builds `pluginWorkbenchEditor`, which compiles the plugin through the junction.
-- Packaging check only: `Scripts\package_plugin.bat` (RunUAT BuildPlugin, no host).
-- C++ errors come from the build. Shader errors only appear when the editor launches: Output Log, search `ValueScope.usf`.
-
-## Plumbing checklist
-
-Work top to bottom. Stop and report at the first failure.
-
-- [x] `Scripts\link_workbench.bat` made the junction.
-- [x] `build_workbench.bat` compiles with zero errors.
-- [x] Editor opens, Output Log shows `CineCamTools: Value Scope view extension registered.` and no `ValueScope.usf` errors.
-- [x] `r.ValueScope.Mode 1` in the viewport: magenta frame sits exactly on the viewport edges, image otherwise unchanged. Try Screen Percentage 50 too; frame must stay on the edges.
-- [x] `r.ValueScope.Mode 2`: viewport goes to 3 values.
-- [x] `r.ValueScope.Mode -1`, add Value Scope to a CineCamera, make it the view target in PIE: overlay shows through that camera only. CineCameraActor hides Auto Activate for Player, so use Level Blueprint: BeginPlay > Get Player Controller > Set View Target with Blend.
-- [x] `HighResShot 1` with the scope off, then `python Tools\value_report.py <shot> --out previews`. The notan preview should match the in-engine notan.
-
-## Step 1 checklist
-
-Full editor restart after building (new UPROPERTYs and shader params, Live Coding can't take them). Work in the editor viewport unless noted.
-
-- [x] Build clean, editor opens, no `ValueScope.usf` errors.
-- [x] `r.ValueScope.Mode 3`: false color. Grey (zone V) where mid values are, no image colors left.
-- [x] `r.ValueScope.Mode -1`, `r.ValueScope.Zebras 1`: image normal except stripes on clipped areas. Blow out something (raise exposure) to see red; crush something to see blue.
-- [x] `r.ValueScope.Thirds 1`: two vertical and two horizontal lines at thirds, visible on sky and on floor. Screen Percentage 50: lines stay at thirds.
-- [x] `r.ValueScope.Mode 0`: everything off, even with Zebras and Thirds at 1.
-- [x] Component: Value Scope on the CineCamera with False Color, Clip Zebras and Thirds Guide on, PIE through it. All three show. Editor viewport stays clean with cvars back at -1.
-- [x] Override notice: set any `r.ValueScope.*` cvar and a yellow line names it, in the editor viewport and PIE. All at -1: gone. `r.ValueScope.OverrideMessage 0` hides it, `DisableAllScreenMessages` hides it, `EnableAllScreenMessages` brings it back.
-- [x] `Scripts\package_plugin.bat` passes. The editor build is modular and hides missing includes; the packaged game build is monolithic and does not (it caught a missing `Modules/ModuleManager.h`).
-- [x] `HighResShot 1` with scope off, then with `r.ValueScope.Mode 3`. Script false color preview matches the shader's pixel by pixel (within rounding).
-
-## Step 2 checklist
-
-2.1 readback plumbing (histogram measured and read back, nothing drawn yet):
-
-- [x] Build clean, editor opens, no `ValueScope.usf` errors.
-- [x] `r.ValueScope.Histogram 1`, then `r.ValueScope.DumpHistogram`. Log line per view, pixels counted equals width x height (no MISMATCH). CSVs in `Saved/ValueScope`.
-- [x] Game View (G), nothing selected, histogram still on (it doesn't change the image): `HighResShot 1`, then `r.ValueScope.DumpHistogram`. Dump line says "ours is the last pass". Compare the `_highresshot.csv` (same frame as the PNG): `python Tools\value_report.py <shot> --compare-histogram <csv>` shows about 100%. Result: CSVs byte-identical, 100.00% (binning is whole-number math on both sides: (30R + 59G + 11B + 50) / 100; float math split the exact .5 ties). Live dumps are other frames; Lumen and temporal noise move pixels 1 or 2 levels per frame, so those only reach 92 to 97% in dark flat scenes.
-- [x] `package_plugin.bat` passes.
-
-2.2 histogram panel (drawn by the overlay pass from the same frame's buffer; `HistogramMaxCS` finds the tallest bin in 1 to 254; `VALUE_SCOPE_HISTOGRAM` permutation compiles the panel out when off):
-
-- [x] Build clean, editor opens, no `ValueScope.usf` errors.
-- [x] `r.ValueScope.Histogram 1`: panel top right, dim backing, clear of the viewport toolbar, faint lines at 64 / 128 / 192. Screen Percentage 50: same place and size.
-- [x] Photoshop check: Game View, `r.ValueScope.Histogram 0`, `HighResShot 1`. Open the PNG in Photoshop, Histogram panel, Luminosity. Same shape as the in-engine panel (Photoshop may scale height differently when 0 or 255 spike). Also read back from shot 11: panel bars vs script histogram, same peak level, correlation 0.9987.
-- [x] Clip markers: raise exposure until something blows out, red bar and red strip at the right edge. Lower it, blue at the left. Reset exposure.
-- [x] With `r.ValueScope.Mode 2` or `3`, zebras and thirds on: panel draws on top, and its shape doesn't change (it measures the image, not the overlay).
-- [x] Component: Histogram on the CineCamera's Value Scope, PIE through it: panel shows.
-- [x] `package_plugin.bat` passes.
-
-2.3 clip percentages (canvas text from the readback, under the panel; clipping is whole levels everywhere: `LumaLevel()` in the shader, same formula in the script, level <= round(Black Clip x 255) and >= round(White Clip x 255)):
-
-- [x] Build clean, editor opens, no `ValueScope.usf` errors.
-- [x] `r.ValueScope.Histogram 1`, `r.ValueScope.ClipPercent 1`: "Crushed" (blue) and "Blown" (red) just under the panel, left edge and middle. Screen Percentage 50: still under it.
-- [x] `r.ValueScope.Histogram 0`, clip text on: text moves up to where the panel's top would be.
-- [x] Push exposure until something clips. Game View, `HighResShot 1`: the PNG has no text in it, and `python Tools\value_report.py <shot>` crushed and blown match the on-screen numbers to 0.1%. Result: shot 12 blown 22.2%, shot 13 crushed 10.2%, both matched on screen; no text in either PNG.
-- [x] Same exposure, `r.ValueScope.Zebras 1`: stripes cover exactly the clipped areas the numbers count (red with Blown, blue with Crushed).
-- [x] Component: Clip Percentages on the CineCamera's Value Scope, PIE through it: text shows. Clip levels are editable when Zebras or Clip Percentages is on.
-- [x] `package_plugin.bat` passes.
-
-2.4 waveform (GPU only, `WaveformCS` counts pixels into 512 columns x 256 levels with `LumaLevel()`; overlay pass draws it top left; `VALUE_SCOPE_WAVEFORM` permutation; override notice moved to bottom left):
-
-- [x] Build clean, editor opens, no `ValueScope.usf` errors.
-- [x] `r.ValueScope.Waveform 1`: panel top left, same size as the histogram, clear of the toolbar. Dark bottom, bright top, faint lines at 64 / 128 / 192. Screen Percentage 50: same place and size.
-- [x] Reads the frame: sky across the top of the frame shows as a band high in the waveform's left-to-right span where the sky is; the floor lower. Pan the camera and the trace follows.
-- [x] Clipped levels trace in blue (bottom) and red (top) when exposure is pushed, matching the zebras.
-- [x] Override notice now bottom left, right of the axis gizmo, not under the waveform.
-- [x] All panels together (Histogram, Clip Percent, Waveform, Mode 3, zebras, thirds): nothing overlaps badly.
-- [x] Component: Waveform on the CineCamera's Value Scope, PIE through it: panel shows.
-- [x] `package_plugin.bat` passes.
-
-## Step 3 checklist
-
-3.1 Sequencer keying (every component setting and Enabled are `Interp`, like the CineCamera's lens settings):
-
-- [x] Build clean, editor opens.
-- [x] Level Sequence with the CineCameraActor added: on its ValueScope component, + Track lists the Value Scope settings (Enabled, Mode, Clip Zebras, Histogram, and the rest).
-- [x] Key Mode Notan at frame 0 and False Color at frame 60. Scrub while piloting the camera (or through a Camera Cut): the view switches at 60.
-- [x] Key a bool (Clip Zebras on at 30) and a float (Shadow Threshold 0.25 to 0.5 over 0 to 60): both follow the timeline.
-- [x] Movie Render Queue, a frame each side of 60: the renders show the switch.
-- [x] `package_plugin.bat` passes.
-
-Pilot fix (settings now resolved in `BeginRenderViewFamily`, because `ViewActor` was null in `SetupView` for piloted editor viewports):
-
-- [x] Build clean.
-- [x] Editor opens, all `r.ValueScope.*` cvars at -1 (`r.ValueScope.Thirds` was left at 1).
-- [x] Pilot the CineCamera with the component: its histogram, waveform and thirds show. Eject: they go away.
-- [x] Sequencer: scrub the 3.1 Mode keys while piloting, the view switches at 60.
-- [x] PIE through the camera: still works.
-- [x] Piloting, Game View, `HighResShot 1`: panels are baked into the PNG.
-- [x] `package_plugin.bat` passes.
-
-3.2 presets (`UValueScopeComponent::GetBuiltInPreset` is the one definition of the built-ins; `UValueScopePreset` data asset; `FValueScopeComponentDetails` in `CineCamToolsEditor` applies through the Settings property handle, so it's one undo step and covers multi-select and Blueprint templates):
-
-- [x] Build clean.
-- [x] Full editor restart (new module, new UCLASS). Opens with no errors, and no LogPython "same name" warning (the enum was `EValueScopePreset`, which clashed with `UValueScopePreset` in Python; now `EValueScopeBuiltInPreset`).
-- [x] Value Scope component Details: a full-width row at the top of the Value Scope category with Apply Preset and Save as Preset side by side, both visible with the Details panel docked narrow. (First try put them in the value column and Save as Preset was cut off.)
-- [x] Apply Preset lists Notan, Value Check, Exposure, Composition (hover shows each tooltip), then Project presets saying "None yet".
-- [x] Apply each built-in while piloting: settings match the table in "Where we left off" and the view changes to match. Clip levels reset to 0.02 / 0.98.
-- [x] Ctrl+Z after applying restores the previous settings in one step.
-- [x] Edit a setting after applying (for example Histogram on with Notan): it sticks, and keys in Sequencer as before.
-- [x] Save as Preset: name dialog opens straight away (no class picker), makes the asset with the camera's settings. Give it a Description.
-- [x] The new asset shows under Project presets, with its Description as the tooltip. Apply it to a second camera: same settings.
-- [x] Content Browser > Miscellaneous > Data Asset lists Value Scope Preset, and one made that way also shows in the list.
-- [x] Change the preset asset: cameras that already used it don't change.
-- [x] Two cameras selected, Apply Preset: both change.
-- [x] Level Blueprint BeginPlay > Apply Built In Preset (Exposure) on the camera's Value Scope, PIE through it: Exposure shows.
-- [x] `package_plugin.bat` passes.
-
-3.3 toolbar (`UValueScopeEditorSettings`, config EditorPerProjectUserSettings; `ValueScopeToolbar` extends `LevelEditor.ViewportToolbar` "Right" with a toggle + submenu entry like the engine's Surface snapping; the runtime module only sees `ValueScope::SetEditorViewportResolver`). Decisions (Tim, 2026-09-26): the toolbar also applies while piloting a camera with no component; thresholds and clip levels only in Editor Preferences (More Settings); one setting shared by all level viewports. Picking anything in the menu also turns it on. Off at first launch.
-
-- [x] Build clean.
-- [x] Full editor restart. Opens with no errors. Value Scope button on the right of the level viewport toolbar, not highlighted, labeled "Value Scope".
-- [x] Click it: turns on (highlighted, label "Value Scope: Notan"), free viewport shows notan. Click again: off.
-- [x] Arrow menu: Enabled, Presets (built-ins, then project presets from 3.2), Mode (Off, Notan, False Color as radio), five overlay checkboxes, More Settings.
-- [x] Each built-in preset: the viewport matches the table. Each overlay toggle and mode works. Picking one while off turns it on.
-- [x] More Settings opens Editor Preferences > Plugins > Value Scope. Change Shadow Threshold there: the viewport updates.
-- [x] Four-viewport layout: all level viewports show the same thing, including a non-Realtime one after a change.
-- [x] Pilot the camera that has a Value Scope component: the component's settings show, not the toolbar's. Disable the component's Enabled: nothing shows (component wins). Eject: the toolbar's back.
-- [x] Pilot a camera with no component: the toolbar shows.
-- [x] Not in: material editor preview, Blueprint editor viewport, Content Browser thumbnails, Static Mesh editor. PIE shows only the component (like a game), never the toolbar.
-- [x] Console still wins: toolbar on in notan, `r.ValueScope.Mode 3`: false color and the yellow notice. `-1`: back to the toolbar.
-- [x] Restart the editor: the toolbar setting is remembered.
-- [x] Toolbar on, Game View, `HighResShot 1`: the shot has the overlay baked in, same as a camera component.
-- [x] `package_plugin.bat` passes.
-
-For 3.3, start from a working 5.8 example of extending the level viewport toolbar: `Engine/Plugins/Developer/RenderDocPlugin/Source/RenderDocPlugin/Private/SRenderDocPluginEditorExtension.cpp` (also PixWinPlugin and GPUReshape). The menu is `LevelEditor.ViewportToolbar` (`SLevelViewport.cpp:2316`).
-
-## Step 4 checklist
-
-4.1 HDR notice (`IsHDROutput`: `IsHDREnabled()`, the family's `bIsHDR`, or HighResShot with Capture HDR; `ReadsValues` strips Notan, False Color, zebras, histogram, clip %, waveform; `HDRBlocked` set drives the canvas line):
-
-- [x] Build clean.
-- [x] Editor opens, no errors. SDR as usual: toolbar in Exposure preset plus Thirds, everything draws, no orange line. (Nothing changed for SDR.)
-- [ ] `r.HDR.EnableHDROutput 1`. If the image changes to HDR: value tools vanish, thirds stay, orange line bottom left ("Value Scope is off: HDR output..."), one LogValueScope warning in the log. With a console override set too, the yellow line sits under the orange one. `r.HDR.EnableHDROutput 0`: everything back. If nothing changes on this monitor, skip this check (no HDR output path) and note it. SKIPPED 2026-09-26: Tim's internal display reports "HDR games, apps and more: Not supported" in Windows, so there's no HDR swapchain. Test on an HDR display when one is available.
-- [x] High Resolution Screenshot window (viewport menu), tick Capture HDR, take a shot with the toolbar in Exposure plus Thirds: the saved image has the thirds lines and no value overlays. Untick it, shot again: overlays are back. Result: `HighresScreenshot_2026.09.26-12.42.43.png` (Capture HDR) thirds only, one LogValueScope warning; `HighresScreenshot00014.png` (off) histogram and thirds back (toolbar had Histogram + Thirds on).
-- [ ] `DisableAllScreenMessages` hides the orange line; `EnableAllScreenMessages` brings it back. SKIPPED 2026-09-26: the line only shows while HDR is detected live, and Tim's display has no HDR output. Same code path as the override notice's check, which passed in step 1.
-- [x] Toolbar label (folded in 2026-09-26): with Mode Off it said "Value Scope: Off" while enabled, which read as the scope being off. Now: Notan or False Color by mode, "Overlays" with Mode Off and any overlay (Exposure preset), "On" with nothing selected. Disabled: plain "Value Scope".
-- [x] `package_plugin.bat` passes.
-
-4.2 live spot meter (`bSpotMeter` on the component, toolbar Overlays menu, `r.ValueScope.SpotMeter`; `SpotMeterCS` averages `LumaLevel()` in a box of 2 * (2 * Scale) + 1 measured pixels, Scale = max(1, round(height / 540)), so 9 x 9 at 1080p; its own 4-slot readback ring; `ValueScope::SetEditorCursorProvider` gives the cursor in level viewports, frame center otherwise; canvas box plus "142  Zone VI"; zone uses false color's floor(level / 255 * 10.999); HDR turns it off like the other value tools):
-
-- [x] Build clean.
-- [x] Full editor restart (new shader, new UPROPERTY). No `ValueScope.usf` errors.
-- [x] Toolbar: Overlays has Spot Meter. Turn it on: a small white-and-black box follows the cursor in the level viewport, with "level  Zone N" to its right. Label says "Value Scope: Overlays" if nothing else is on.
-- [x] Readings make sense: sky high (200s), deep shadow low. Mode 3 (false color) on: the zone in the readout matches the color under the box.
-- [x] Move the cursor off the viewport (onto the Details panel): the box jumps to the frame center and keeps reading.
-- [x] Four-viewport layout: the box follows the cursor in whichever viewport it's over; the others read their centers.
-- [x] Screen Percentage 50: box stays the same size on screen and under the cursor.
-- [x] Exact check (Game View, nothing selected, cursor off the viewport so it reads the center, flat area at center if possible): note the number, `HighResShot 1`, tell Claude the number and the file. Claude averages the same center box in the PNG. Within 1 level (Lumen noise between live frames). 2026-09-26: Tim reports pass; Claude did not compare the PNG itself.
-- [x] HighResShot has no box and no text in it.
-- [x] Component: Spot Meter on the CineCamera's Value Scope, PIE through it: reads the frame center. Pilot the camera in the editor: follows the cursor. Key it in Sequencer: follows the timeline.
-- [x] `r.ValueScope.SpotMeter 1` on a view with nothing else: meter shows, yellow notice lists "SpotMeter 1". `-1`: back.
-- [x] Realtime off in a viewport: the reading still updates when you move the mouse (it may lag a frame or two). Known limit, not a fail.
-- [x] `package_plugin.bat` passes.
-
-4.3 pins (`ValueScope::AddSpotPin(State)` pins at `LastCursorUV`, the cursor's last spot over that view's image; `SpotPins` per view state, max 4, appended after the live point, same `SpotMeterCS` dispatch; not saved; `ClearSpotPins` clears every view. Editor: `FValueScopeCommands` in the LevelEditor context, "Pin Spot Meter Point" Alt+M (Alt+M was the first default and didn't work on Tim's machine; Alt+M is also Control Rig's in its edit mode and DMX's in its editor, neither in the normal level editor), "Clear Spot Meter Pins" no default key; both mapped on the level editor's global actions; toolbar menu section "Spot Meter Pins"; notifications for full, meter off, no cursor):
-
-- [x] Build clean.
-- [x] Full editor restart. No errors.
-- [x] Spot Meter on. Hover a bright spot, Alt+M: a yellow box stays there labeled "A  level  Zone N". The white live box keeps following the cursor.
-- [x] Pin B on a darker spot: "B  88  Zone III  (-54, 3 zones under A)" style readout, numbers matching what the live box read there. Pin C in the same zone as A: "same zone as A".
-- [x] Pins read live: change a light's intensity, the pinned numbers follow (after a frame or two).
-- [x] Fifth pin: notification "Four pins is the most...". Nothing added.
-- [x] Spot Meter off, Alt+M: notification "Turn on the Spot Meter first...". Pins hidden while it's off, back when it's on.
-- [x] Toolbar menu: "Spot Meter Pins" section with Pin Point (shows Alt+M) and Clear Pins. Clear Pins removes them everywhere.
-- [x] Four-viewport layout: pins belong to the viewport they were made in.
-- [x] Editor Preferences > Keyboard Shortcuts, search "Spot Meter": both commands listed under Value Scope; rebind Pin to another key and it works. Result: Tim bound Alt+M because Ctrl+Alt+M didn't work; all other checks passed with it. Default changed to Alt+M after.
-- [x] Screen Percentage 50, and resizing the viewport: pins stay on the same spot in the image.
-- [x] HighResShot: no boxes or text.
-- [x] `package_plugin.bat` passes.
+- Tim's display has no HDR output path. Test HDR through the High Resolution Screenshot window's Capture HDR option.
+- Ctrl+Alt+M didn't register as a key binding on Tim's machine. Prefer two-key chords.
+- The shell here mangles backslashes and quotes in heredocs. For multi-line code edits, write a Python patch script to the scratchpad with the Write tool and run it, or use the Edit tool. Patch scripts should check each pattern matches exactly once before writing anything.
 
 ## Rules that should not drift
 
 - **Post-tonemap only.** Pre-tonemap luminance is what the built-in Eye Adaptation view already shows, and it doesn't match Photoshop.
 - **Luma weights 0.30 / 0.59 / 0.11**, Photoshop's Luminosity histogram. Not Rec.709.
 - **Shader, component defaults and `value_report.py` share constants.** Change all or none.
-- **Shaders module stays PostConfigInit, runtime module stays Default.** No UObjects in the shaders module. Editor-only code (Slate, UnrealEd) goes in `CineCamToolsEditor`, never the runtime module.
-- **Built-in presets have one definition:** `UValueScopeComponent::GetBuiltInPreset`. The picker, Blueprint and the toolbar all call it, and both menus list presets through `ValueScopePresetList`.
+- **Shaders module stays PostConfigInit, runtime module stays Default.** No UObjects in the shaders module. Editor-only code (Slate, UnrealEd) goes in `CineCamToolsEditor`, never the runtime module; the runtime module only exposes hooks (`ValueScopeEditorHook.h`).
+- **Built-in presets have one definition:** `UValueScopeComponent::GetBuiltInPreset`. Both menus list presets through `ValueScopePresetList`.
 - **Precedence, first match wins:** console cvars, then the Value Scope component on the view actor (even disabled), then the level viewport toolbar.
+- **Value tools off on HDR output.** Anything new that reads pixel values goes in `ReadsValues`.
 - **Docs and on-screen text:** plain language, no em-dashes. Students read this.
-
-## Known risks, most likely first
-
-1. In editor viewports with icons showing, the editor primitive composite runs after our Tonemap hook and changes pixels (not just the icons), so the histogram differs from a HighResShot of that view by a few percent. Game View (G), PIE, games and Movie Render Queue don't run it, and there the histogram matches the PNG. No post-process hook exists after it. The dump line says "other passes follow ours" when this applies.
-
-When a risk is resolved, fix the code, delete the item here, and say what 5.8 actually does.
-
-Resolved against the 5.8.3 install (CL 58210709):
-
-- `ScreenPass.h` and `PostProcess/PostProcessMaterialInputs.h` are both in `Renderer/Public`. The Private and Internal include fallbacks are gone from both Build.cs files.
-- `SubscribeToPostProcessingPass(EPostProcessingPass, const FSceneView&, FPostProcessingPassDelegateArray&, bool)` is the live overload. The one without the view is deprecated since 5.5. `FAfterPassCallbackDelegate(Array)` are aliases for `FPostProcessingPassDelegate(Array)`.
-- `Inputs.GetInput(...)` returns `FScreenPassTextureSlice`. `FScreenPassTexture::CopyFromSlice(GraphBuilder, Slice)` returns `FScreenPassTexture`. `Inputs.OverrideOutput` is an `FScreenPassRenderTarget`.
-- `Pending` can't be keyed by view pointer. The renderer copies each `FSceneView` into a new `FViewInfo` (`SceneRendering.cpp`, `Views.Emplace_GetRef(InViewFamily->Views[i])`), so `SubscribeToPostProcessingPass` sees a different address than the game thread did. It's now keyed by `InView.State`, which is copied over and unique per view. Views with no State get no overlay.
-- `InView.ViewActor` is null during `SetupView` in a level viewport, even while piloting: `FEditorViewportClient::CalcSceneView` calls `SetupView` (`EditorViewportClient.cpp:1650`), and only afterward does `FLevelEditorViewportClient::CalcSceneView` set `ViewActor` to the locked actor (`LevelEditorViewport.cpp:2563`). A free (unpiloted) viewport has no ViewActor at all. We resolve settings in `BeginRenderViewFamily` instead (`SceneRenderBuilder.cpp:511`, game thread, after all views are complete, before the renderer copies them). Scene captures also go through `CreateSceneRenderer`, so they behave as before. Found 2026-09-26: step 1 to 3.1 component checks all ran in PIE, where `LocalPlayer.cpp` sets ViewActor before `SetupView`.
-- HDR output after Tonemap is PQ or scRGB, not 0 to 1. `IsHDREnabled()` (`RenderCore.cpp:433`) is `GRHISupportsHDROutput && r.HDR.EnableHDROutput`, so on a machine without HDR output support the cvar does nothing. We also check `FSceneViewFamily::bIsHDR` and HighResShot's `bCaptureHDR` (writes linear HDR). When any is true, value tools are turned off with a notice (step 4.1).
-
-## Roadmap
-
-Done, step 1: false color zones, clip zebras, thirds guide, console override notice.
-
-Done, step 2: GPU histogram with readback (matches Photoshop Luminosity exactly), histogram panel, clip percentages, waveform.
-
-Done, step 3: Sequencer keying, presets (four built-ins, preset data assets, Save as Preset), level viewport toolbar. Also fixed: piloted cameras' components weren't found (settings now resolved in BeginRenderViewFamily).
-
-Done, step 4: HDR notice (value tools off on HDR output), spot meter (level and zone at the cursor or frame center), pins A to D with differences from A (Alt+M).
-
-Next (step 5): not planned yet.

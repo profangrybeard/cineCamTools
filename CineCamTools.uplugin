@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
 	"Version": 1,
-	"VersionName": "0.1",
+	"VersionName": "1.0",
 	"FriendlyName": "CineCam Tools",
 	"Description": "Camera tools for lighting and composition study. First tool: Value Scope, post-tonemap value overlays.",
 	"Category": "Rendering",

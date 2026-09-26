@@ -2,6 +2,8 @@
 
 Unreal Engine 5.8 camera tools for studying lighting, value and composition.
 
+Version 1.0. What's in it: [docs/CHANGELOG.md](docs/CHANGELOG.md). Ideas for what's next: [docs/BACKLOG.md](docs/BACKLOG.md).
+
 ## Value Scope
 
 Draws overlays on the final image a camera sees, after tonemapping. That's the same image a Photoshop histogram would read, so what you see in engine matches what you'd measure in Photoshop.
