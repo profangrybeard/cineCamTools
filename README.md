@@ -24,7 +24,8 @@ Overlays (turn on with any mode, including Off):
 
 1. Select a CineCameraActor. Add Component > Value Scope. Pick a mode.
 2. It shows whenever you look through that camera: piloting it in the editor viewport, PIE, Sequencer, Movie Render Queue.
-3. In the free editor viewport (not looking through a camera), use the console:
+3. In the editor viewport, use the **Value Scope** button on the viewport toolbar (right side). Click it to turn Value Scope on or off; the arrow next to it opens the menu: Presets, Mode, and each overlay. Picking anything there also turns it on. More Settings opens Editor Preferences > Plugins > Value Scope for the notan thresholds and clip levels. The setting is shared by every level viewport and remembered next time you open the project. While you look through a camera that has its own Value Scope, the camera's settings show instead, the same as in PIE.
+4. The console overrides both, which is handy for quick checks:
    - `r.ValueScope.Mode 1` plumbing check
    - `r.ValueScope.Mode 2` notan
    - `r.ValueScope.Mode 3` false color
@@ -34,9 +35,9 @@ Overlays (turn on with any mode, including Off):
    - `r.ValueScope.ClipPercent 1` clip percentages, `0` to turn off
    - `r.ValueScope.Waveform 1` waveform, `0` to turn off
    - `r.ValueScope.Mode 0` everything off
-   - `-1` on any of these goes back to per-camera
+   - `-1` on any of these hands control back to the camera and toolbar
 
-   Console settings win over the camera's settings. While any are set, a yellow line at the bottom left of the screen says which. If the camera's settings seem to do nothing, check for that line. `r.ValueScope.OverrideMessage 0` hides it, and so does `DisableAllScreenMessages`.
+   Console settings win over the camera and the toolbar. While any are set, a yellow line at the bottom left of the screen says which. If the camera or toolbar seems to do nothing, check for that line. `r.ValueScope.OverrideMessage 0` hides it, and so does `DisableAllScreenMessages`.
 
 Turn it off before final renders. Movie Render Queue will bake it in.
 

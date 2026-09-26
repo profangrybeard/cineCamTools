@@ -5,7 +5,8 @@ Unreal Engine 5.8 plugin of camera tools for teaching lighting, value and compos
 ## Where we left off (2026-09-26)
 
 - 3.1 and the pilot fix are committed and pushed (`d684851`).
-- 3.2 presets passed every editor check on 2026-09-26 and is committed ("Value Scope step 3.2: presets"). Push when Tim says. Next: 3.3 toolbar, discuss and diagram the design first. 3.2 design (agreed 2026-09-26): Preset row at the top of the component's Value Scope category, Apply Preset dropdown (built-ins, then every `UValueScopePreset` asset) and Save as Preset button; new editor module `CineCamToolsEditor` (3.3's toolbar goes there too).
+- 3.2 presets is committed and pushed (`3e7bd28`).
+- 3.3 toolbar passed every editor check on 2026-09-26 and is committed ("Value Scope step 3.3: editor toolbar"). Push when Tim says. Step 3 is done. Next: ask Tim what step 4 is; nothing is planned yet. 3.2 design (agreed 2026-09-26): Preset row at the top of the component's Value Scope category, Apply Preset dropdown (built-ins, then every `UValueScopePreset` asset) and Save as Preset button; new editor module `CineCamToolsEditor` (3.3's toolbar goes there too).
 
   | Preset | Mode | Overlays |
   |---|---|---|
@@ -39,9 +40,9 @@ Unreal Engine 5.8 plugin of camera tools for teaching lighting, value and compos
 - CineCameraActor hides Auto Activate for Player; use Level Blueprint BeginPlay > Get Player Controller > Set View Target with Blend.
 - The shell here mangles backslashes and quotes in heredocs. For multi-line code edits, write a Python patch script to the scratchpad with the Write tool and run it, or use the Edit tool.
 
-## Current goal: roadmap, step 3
+## Current goal: roadmap, step 4 (not planned yet)
 
-Plumbing, step 1 and step 2 are done. Tim said go on step 3. Work "Step 3 checklist" in order: 3.1 Sequencer keying, 3.2 presets, 3.3 editor toolbar.
+Plumbing and steps 1 to 3 are done. Ask Tim what step 4 is; discuss and diagram it before any code.
 
 Step 3 decisions (Tim, 2026-09-25):
 
@@ -79,8 +80,9 @@ Source/CineCamToolsShaders/   PostConfigInit. Shader dir mapping; FValueScopePS 
                               FValueScopeHistogramMaxCS, FValueScopeWaveformCS.
 Source/CineCamTools/          Default. UValueScopeComponent (+ built-in presets), UValueScopePreset,
                               FValueScopeViewExtension, module.
-Source/CineCamToolsEditor/    Editor only. FValueScopeComponentDetails (preset picker, Save as Preset).
-                              3.3's toolbar goes here.
+Source/CineCamToolsEditor/    Editor only. FValueScopeComponentDetails (preset picker, Save as Preset),
+                              ValueScopePresetList (the one preset list both menus use),
+                              UValueScopeEditorSettings + ValueScopeToolbar (level viewport toolbar).
 Shaders/Private/ValueScope.usf  All shader entry points: MainPS, HistogramCS, HistogramMaxCS, WaveformCS.
 Tools/value_report.py         CPU reference for the shader math, runs on a PNG.
 Scripts/                      link_workbench.bat, build_workbench.bat, package_plugin.bat
@@ -90,7 +92,7 @@ Config/FilterPlugin.ini       Stock template from BuildPlugin, nothing listed ye
 ## How it works
 
 1. `UValueScopeComponent` sits on a CineCameraActor and holds `FValueScopeSettings` (all `Interp`, so Sequencer can key them).
-2. `FValueScopeViewExtension::BeginRenderViewFamily` (game thread, per view via `ResolveView`; not `SetupView`, see "Resolved") reads the component off `InView.ViewActor`, applies the `r.ValueScope.*` cvar overrides, and stores settings in `Pending` (plus a HighResShot flag from `GIsHighResScreenshot`) keyed by the view's `State` pointer. It also keeps a game-thread copy in `CanvasSettings` for the canvas text.
+2. `FValueScopeViewExtension::BeginRenderViewFamily` (game thread, per view via `ResolveView`; not `SetupView`, see "Resolved") reads the component off `InView.ViewActor` (a component wins even when disabled); with no component, asks the editor resolver (`ValueScopeEditorHook.h`, set by `CineCamToolsEditor`) whether the view's State is a level viewport client's ViewState and the toolbar is on; then applies the `r.ValueScope.*` cvar overrides, and stores settings in `Pending` (plus a HighResShot flag from `GIsHighResScreenshot`) keyed by the view's `State` pointer. It also keeps a game-thread copy in `CanvasSettings` for the canvas text.
 3. `SubscribeToPostProcessingPass` (render thread) takes those settings for `EPostProcessingPass::Tonemap` and adds `AfterTonemap_RenderThread`.
 4. That callback, in order: `HistogramCS` (if Histogram or Clip Percentages; queues a GPU readback into a 4-slot ring per view), `HistogramMaxCS` (if the histogram panel is on), `WaveformCS` (if Waveform), then `FValueScopePS` full screen, which draws the mode, zebras, thirds, waveform panel, histogram panel and plumbing frame. If `Inputs.OverrideOutput` is valid it must write there, because it's the backbuffer when Tonemap is the last pass.
 5. Canvas text goes through `UDebugDrawService` ("Rendering" show flag, so every editor and game viewport): the console override notice (bottom left) and the clip percentages (under the histogram panel, from the latest readback). Canvas units are pixels / DPI. Skipped during HighResShot.
@@ -214,7 +216,22 @@ Pilot fix (settings now resolved in `BeginRenderViewFamily`, because `ViewActor`
 - [x] Level Blueprint BeginPlay > Apply Built In Preset (Exposure) on the camera's Value Scope, PIE through it: Exposure shows.
 - [x] `package_plugin.bat` passes.
 
-3.3 toolbar: checklist written when it starts.
+3.3 toolbar (`UValueScopeEditorSettings`, config EditorPerProjectUserSettings; `ValueScopeToolbar` extends `LevelEditor.ViewportToolbar` "Right" with a toggle + submenu entry like the engine's Surface snapping; the runtime module only sees `ValueScope::SetEditorViewportResolver`). Decisions (Tim, 2026-09-26): the toolbar also applies while piloting a camera with no component; thresholds and clip levels only in Editor Preferences (More Settings); one setting shared by all level viewports. Picking anything in the menu also turns it on. Off at first launch.
+
+- [x] Build clean.
+- [x] Full editor restart. Opens with no errors. Value Scope button on the right of the level viewport toolbar, not highlighted, labeled "Value Scope".
+- [x] Click it: turns on (highlighted, label "Value Scope: Notan"), free viewport shows notan. Click again: off.
+- [x] Arrow menu: Enabled, Presets (built-ins, then project presets from 3.2), Mode (Off, Notan, False Color as radio), five overlay checkboxes, More Settings.
+- [x] Each built-in preset: the viewport matches the table. Each overlay toggle and mode works. Picking one while off turns it on.
+- [x] More Settings opens Editor Preferences > Plugins > Value Scope. Change Shadow Threshold there: the viewport updates.
+- [x] Four-viewport layout: all level viewports show the same thing, including a non-Realtime one after a change.
+- [x] Pilot the camera that has a Value Scope component: the component's settings show, not the toolbar's. Disable the component's Enabled: nothing shows (component wins). Eject: the toolbar's back.
+- [x] Pilot a camera with no component: the toolbar shows.
+- [x] Not in: material editor preview, Blueprint editor viewport, Content Browser thumbnails, Static Mesh editor. PIE shows only the component (like a game), never the toolbar.
+- [x] Console still wins: toolbar on in notan, `r.ValueScope.Mode 3`: false color and the yellow notice. `-1`: back to the toolbar.
+- [x] Restart the editor: the toolbar setting is remembered.
+- [x] Toolbar on, Game View, `HighResShot 1`: the shot has the overlay baked in, same as a camera component.
+- [x] `package_plugin.bat` passes.
 
 For 3.3, start from a working 5.8 example of extending the level viewport toolbar: `Engine/Plugins/Developer/RenderDocPlugin/Source/RenderDocPlugin/Private/SRenderDocPluginEditorExtension.cpp` (also PixWinPlugin and GPUReshape). The menu is `LevelEditor.ViewportToolbar` (`SLevelViewport.cpp:2316`).
 
@@ -224,7 +241,8 @@ For 3.3, start from a working 5.8 example of extending the level viewport toolba
 - **Luma weights 0.30 / 0.59 / 0.11**, Photoshop's Luminosity histogram. Not Rec.709.
 - **Shader, component defaults and `value_report.py` share constants.** Change all or none.
 - **Shaders module stays PostConfigInit, runtime module stays Default.** No UObjects in the shaders module. Editor-only code (Slate, UnrealEd) goes in `CineCamToolsEditor`, never the runtime module.
-- **Built-in presets have one definition:** `UValueScopeComponent::GetBuiltInPreset`. The picker, Blueprint and the toolbar all call it.
+- **Built-in presets have one definition:** `UValueScopeComponent::GetBuiltInPreset`. The picker, Blueprint and the toolbar all call it, and both menus list presets through `ValueScopePresetList`.
+- **Precedence, first match wins:** console cvars, then the Value Scope component on the view actor (even disabled), then the level viewport toolbar.
 - **Docs and on-screen text:** plain language, no em-dashes. Students read this.
 
 ## Known risks, most likely first
@@ -248,4 +266,6 @@ Done, step 1: false color zones, clip zebras, thirds guide, console override not
 
 Done, step 2: GPU histogram with readback (matches Photoshop Luminosity exactly), histogram panel, clip percentages, waveform.
 
-Next (step 3, not planned yet): presets data asset, Sequencer keying, editor toolbar toggle.
+Done, step 3: Sequencer keying, presets (four built-ins, preset data assets, Save as Preset), level viewport toolbar. Also fixed: piloted cameras' components weren't found (settings now resolved in BeginRenderViewFamily).
+
+Next (step 4): not planned yet.

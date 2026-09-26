@@ -17,9 +17,12 @@ public class CineCamToolsEditor : ModuleRules
 		{
 			"AssetRegistry",
 			"AssetTools",
+			"DeveloperSettings",
 			"PropertyEditor",
+			"Settings",
 			"Slate",
 			"SlateCore",
+			"ToolMenus",
 			"UnrealEd",
 			"CineCamTools"
 		});

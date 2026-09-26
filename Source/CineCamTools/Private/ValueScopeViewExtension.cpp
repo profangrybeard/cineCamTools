@@ -18,6 +18,7 @@
 #include "RHIGPUReadback.h"
 #include "ScreenPass.h"
 #include "SceneView.h"
+#include "ValueScopeEditorHook.h"
 
 #if WITH_EDITOR
 #include "EditorSupportDelegates.h"
@@ -27,6 +28,15 @@ DEFINE_LOG_CATEGORY_STATIC(LogValueScope, Log, All);
 
 // The one live extension, for console commands. Set and cleared by the extension itself.
 static FValueScopeViewExtension* GValueScopeExtension = nullptr;
+
+// Set by CineCamToolsEditor for the level viewport toolbar. Game thread only.
+static ValueScope::FEditorViewportResolver GEditorViewportResolver;
+
+void ValueScope::SetEditorViewportResolver(FEditorViewportResolver Resolver)
+{
+	check(IsInGameThread());
+	GEditorViewportResolver = MoveTemp(Resolver);
+}
 
 // Editor viewports that aren't in Realtime only repaint on input, so a cvar change
 // would not show until the mouse moved. Ask every viewport to repaint instead.
@@ -292,17 +302,26 @@ void FValueScopeViewExtension::ResolveView(const FSceneView& InView)
 {
 	FValueScopeSettings Settings;
 	bool bActive = false;
+	bool bHasComponent = false;
 
 	if (const AActor* ViewActor = InView.ViewActor)
 	{
 		if (const UValueScopeComponent* Scope = ViewActor->FindComponentByClass<UValueScopeComponent>())
 		{
+			// A component wins even when disabled, so a piloted camera looks the same as in PIE.
+			bHasComponent = true;
 			if (Scope->bEnabled)
 			{
 				Settings = Scope->Settings;
 				bActive = true;
 			}
 		}
+	}
+
+	// No component: the editor toolbar, if this is a level editor viewport and it's on.
+	if (!bHasComponent && GEditorViewportResolver && InView.State && GEditorViewportResolver(InView.State, Settings))
+	{
+		bActive = true;
 	}
 
 	if (!bActive)

@@ -1,5 +1,4 @@
 #include "ValueScopeComponentDetails.h"
-#include "AssetRegistry/IAssetRegistry.h"
 #include "AssetToolsModule.h"
 #include "DetailCategoryBuilder.h"
 #include "DetailLayoutBuilder.h"
@@ -10,6 +9,7 @@
 #include "PropertyHandle.h"
 #include "ValueScopeComponent.h"
 #include "ValueScopePreset.h"
+#include "ValueScopePresetList.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SComboButton.h"
 #include "Widgets/SBoxPanel.h"
@@ -84,49 +84,30 @@ TSharedRef<SWidget> FValueScopeComponentDetails::MakePresetMenu() const
 	FMenuBuilder Menu(/*bShouldCloseWindowAfterMenuSelection*/ true, nullptr);
 	const TSharedPtr<IPropertyHandle> Handle = SettingsHandle;
 
-	Menu.BeginSection("BuiltIn", LOCTEXT("BuiltIn", "Built-in"));
-	const UEnum* Enum = StaticEnum<EValueScopeBuiltInPreset>();
-	for (int32 Index = 0; Index < Enum->NumEnums() - 1; ++Index) // The last entry is the generated _MAX.
+	const auto AddChoice = [&Menu, &Handle](const FValueScopePresetChoice& Choice)
 	{
-		const EValueScopeBuiltInPreset Preset = static_cast<EValueScopeBuiltInPreset>(Enum->GetValueByIndex(Index));
-		Menu.AddMenuEntry(Enum->GetDisplayNameTextByIndex(Index), Enum->GetToolTipTextByIndex(Index), FSlateIcon(),
-			FUIAction(FExecuteAction::CreateLambda([Handle, Preset]()
-			{
-				ApplySettings(Handle, UValueScopeComponent::GetBuiltInPreset(Preset));
-			})));
+		const FValueScopeSettings Settings = Choice.Settings;
+		Menu.AddMenuEntry(Choice.Label, Choice.ToolTip, FSlateIcon(),
+			FUIAction(FExecuteAction::CreateLambda([Handle, Settings]() { ApplySettings(Handle, Settings); })));
+	};
+
+	Menu.BeginSection("BuiltIn", ValueScopePresets::BuiltInHeading());
+	for (const FValueScopePresetChoice& Choice : ValueScopePresets::GetBuiltIn())
+	{
+		AddChoice(Choice);
 	}
 	Menu.EndSection();
 
-	Menu.BeginSection("Project", LOCTEXT("Project", "Project presets"));
-	TArray<FAssetData> Assets;
-	IAssetRegistry::GetChecked().GetAssetsByClass(UValueScopePreset::StaticClass()->GetClassPathName(), Assets, true);
-	Assets.Sort([](const FAssetData& A, const FAssetData& B) { return A.AssetName.LexicalLess(B.AssetName); });
-
-	if (Assets.IsEmpty())
+	Menu.BeginSection("Project", ValueScopePresets::ProjectHeading());
+	const TArray<FValueScopePresetChoice> Project = ValueScopePresets::GetProject();
+	if (Project.IsEmpty())
 	{
-		Menu.AddMenuEntry(LOCTEXT("None", "None yet"),
-			LOCTEXT("NoneTip", "Use Save as Preset, or Content Browser > Miscellaneous > Data Asset > Value Scope Preset."),
+		Menu.AddMenuEntry(ValueScopePresets::NoProjectPresetsLabel(), ValueScopePresets::NoProjectPresetsToolTip(),
 			FSlateIcon(), FUIAction(FExecuteAction(), FCanExecuteAction::CreateLambda([]() { return false; })));
 	}
-
-	for (const FAssetData& Asset : Assets)
+	for (const FValueScopePresetChoice& Choice : Project)
 	{
-		// Preset assets are tiny, so loading them here for the tooltip is fine.
-		const UValueScopePreset* Preset = Cast<UValueScopePreset>(Asset.GetAsset());
-		if (!Preset)
-		{
-			continue;
-		}
-		const FText Tip = Preset->Description.IsEmpty() ? FText::FromName(Asset.PackageName) : Preset->Description;
-		const TWeakObjectPtr<const UValueScopePreset> WeakPreset(Preset);
-		Menu.AddMenuEntry(FText::FromName(Asset.AssetName), Tip, FSlateIcon(),
-			FUIAction(FExecuteAction::CreateLambda([Handle, WeakPreset]()
-			{
-				if (const UValueScopePreset* Loaded = WeakPreset.Get())
-				{
-					ApplySettings(Handle, Loaded->Settings);
-				}
-			})));
+		AddChoice(Choice);
 	}
 	Menu.EndSection();
 
