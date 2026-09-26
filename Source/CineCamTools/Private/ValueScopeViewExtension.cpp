@@ -66,6 +66,21 @@ void ValueScope::SetEditorCursorProvider(FEditorCursorProvider Provider)
 	GEditorCursorProvider = MoveTemp(Provider);
 }
 
+ValueScope::EAddSpotPinResult ValueScope::AddSpotPin(const FSceneViewStateInterface* State)
+{
+	check(IsInGameThread());
+	return GValueScopeExtension ? GValueScopeExtension->AddSpotPin(State) : EAddSpotPinResult::MeterOff;
+}
+
+void ValueScope::ClearSpotPins()
+{
+	check(IsInGameThread());
+	if (GValueScopeExtension)
+	{
+		GValueScopeExtension->ClearSpotPins();
+	}
+}
+
 // Zone 0 to 10 of a level, the same formula false color paints with (floor(luma * 10.999)).
 static int32 ZoneOfLevel(int32 Level)
 {
@@ -245,7 +260,7 @@ void FValueScopeViewExtension::DrawSpotMeter(UCanvas* Canvas)
 		Outer.SetColor(FLinearColor::Black);
 		Canvas->DrawItem(Outer);
 		FCanvasBoxItem Inner(BoxMin, BoxSize);
-		Inner.SetColor(FLinearColor::White);
+		Inner.SetColor(Index >= 1 ? FLinearColor(1.0f, 0.9f, 0.4f) : FLinearColor::White);
 		Canvas->DrawItem(Inner);
 
 		if (!Levels.IsValidIndex(Index) || Levels[Index] < 0)
@@ -253,10 +268,30 @@ void FValueScopeViewExtension::DrawSpotMeter(UCanvas* Canvas)
 			continue; // First readback is still 2 to 3 frames away.
 		}
 		const int32 Level = Levels[Index];
+		const int32 Zone = ZoneOfLevel(Level);
+		FString Label = FString::Printf(TEXT("%d  Zone %s"), Level, ZoneName(Zone));
+
+		// Index 0 is the live point. Pins follow as A to D. Differences are in levels and
+		// zones, never stops: stops would need the light before the tonemapper.
+		if (Index >= 1)
+		{
+			const TCHAR Letter = TCHAR('A' + Index - 1);
+			Label = FString::Printf(TEXT("%c  %s"), Letter, *Label);
+			if (Index >= 2 && Levels.IsValidIndex(1) && Levels[1] >= 0)
+			{
+				const int32 LevelDiff = Level - Levels[1];
+				const int32 ZoneDiff = Zone - ZoneOfLevel(Levels[1]);
+				const FString Zones = ZoneDiff == 0 ? FString(TEXT("same zone as A"))
+					: FString::Printf(TEXT("%d zone%s %s A"), FMath::Abs(ZoneDiff), FMath::Abs(ZoneDiff) == 1 ? TEXT("") : TEXT("s"),
+						ZoneDiff > 0 ? TEXT("over") : TEXT("under"));
+				Label += FString::Printf(TEXT("  (%+d, %s)"), LevelDiff, *Zones);
+			}
+		}
+
 		FCanvasTextItem Text(
 			FVector2D(BoxMin.X + BoxSize.X + 6.0f * Scale * ToCanvas, BoxMin.Y - 2.0f * Scale * ToCanvas),
-			FText::FromString(FString::Printf(TEXT("%d  Zone %s"), Level, ZoneName(ZoneOfLevel(Level)))),
-			GEngine->GetSmallFont(), FLinearColor::White);
+			FText::FromString(Label),
+			GEngine->GetSmallFont(), Index >= 1 ? FLinearColor(1.0f, 0.9f, 0.4f) : FLinearColor::White);
 		Text.Scale = FVector2D(Scale * 0.5f); // 1 at 1080p, 2 at 4K
 		Text.EnableShadow(FLinearColor::Black);
 		Canvas->DrawItem(Text);
@@ -571,8 +606,13 @@ void FValueScopeViewExtension::ResolveView(const FSceneView& InView)
 			&& Mouse.X >= Rect.Min.X && Mouse.X < Rect.Max.X && Mouse.Y >= Rect.Min.Y && Mouse.Y < Rect.Max.Y)
 		{
 			Live = FVector2f((Mouse.X - Rect.Min.X) / Rect.Width(), (Mouse.Y - Rect.Min.Y) / Rect.Height());
+			LastCursorUV.Add(InView.State, Live);
 		}
 		SpotPoints.Add(Live);
+		if (const FSpotPoints* Pins = SpotPins.Find(InView.State))
+		{
+			SpotPoints.Append(*Pins);
+		}
 		CanvasSpots.Add(InView.State, SpotPoints);
 	}
 	else
@@ -836,6 +876,32 @@ FRDGBufferRef FValueScopeViewExtension::AddHistogramPass(FRDGBuilder& GraphBuild
 	}
 
 	return HistogramBuffer;
+}
+
+ValueScope::EAddSpotPinResult FValueScopeViewExtension::AddSpotPin(const FSceneViewStateInterface* State)
+{
+	using ValueScope::EAddSpotPinResult;
+	if (!State || !CanvasSpots.Contains(State))
+	{
+		return EAddSpotPinResult::MeterOff;
+	}
+	const FVector2f* Cursor = LastCursorUV.Find(State);
+	if (!Cursor)
+	{
+		return EAddSpotPinResult::NoCursor;
+	}
+	FSpotPoints& Pins = SpotPins.FindOrAdd(State);
+	if (Pins.Num() >= MaxPins)
+	{
+		return EAddSpotPinResult::Full;
+	}
+	Pins.Add(*Cursor);
+	return EAddSpotPinResult::Added;
+}
+
+void FValueScopeViewExtension::ClearSpotPins()
+{
+	SpotPins.Reset();
 }
 
 void FValueScopeViewExtension::AddSpotMeterPass(FRDGBuilder& GraphBuilder, const FSceneView& View, const FScreenPassTexture& SceneColor, const FSpotPoints& Points)

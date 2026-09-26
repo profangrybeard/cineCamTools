@@ -4,6 +4,7 @@
 #include "RenderGraphFwd.h"
 #include "SceneViewExtension.h"
 #include "ValueScopeComponent.h"
+#include "ValueScopeEditorHook.h"
 
 struct FPostProcessMaterialInputs;
 struct FScreenPassTexture;
@@ -49,6 +50,19 @@ private:
 	// Game thread only. Where each view's meter boxes are, for the canvas.
 	TMap<const FSceneViewStateInterface*, FSpotPoints> CanvasSpots;
 	void DrawSpotMeter(class UCanvas* Canvas);
+
+	// Game thread only. Pinned points per view (A to D, after the live point), and where the
+	// cursor last was over each view's image, which is where the next pin goes.
+	static constexpr int32 MaxPins = 4;
+	TMap<const FSceneViewStateInterface*, FSpotPoints> SpotPins;
+	TMap<const FSceneViewStateInterface*, FVector2f> LastCursorUV;
+
+public:
+	// Game thread. See ValueScope::AddSpotPin and ValueScope::ClearSpotPins.
+	ValueScope::EAddSpotPinResult AddSpotPin(const FSceneViewStateInterface* State);
+	void ClearSpotPins();
+
+private:
 
 	FScreenPassTexture AfterTonemap_RenderThread(FRDGBuilder& GraphBuilder, const FSceneView& View,
 		const FPostProcessMaterialInputs& Inputs, FValueScopeSettings Settings, bool bHighResShot, FSpotPoints SpotPoints);

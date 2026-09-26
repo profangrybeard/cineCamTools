@@ -8,7 +8,8 @@ Unreal Engine 5.8 plugin of camera tools for teaching lighting, value and compos
 - 3.2 presets is committed and pushed (`3e7bd28`).
 - Step 3 is done and pushed (`3ea53d1`).
 - Step 4 (spot meter) agreed 2026-09-26, see "Step 4 checklist". 4.1 HDR notice (plus toolbar label fix) is committed and pushed (`7eb65b0`); two checks skipped for lack of an HDR display.
-- 4.2 live spot meter passed on 2026-09-26 and is committed ("Value Scope step 4.2: spot meter"). Push when Tim says. Next: 4.3 pins, write its checklist and wait for go.
+- 4.2 live spot meter is committed and pushed (`404a9c2`).
+- 4.3 pins passed on 2026-09-26 (with Alt+M bound by hand; default changed from Ctrl+Alt+M to Alt+M after) and is committed and pushed ("Value Scope step 4.3: spot meter pins"). Step 4 is done. Next: ask Tim what step 5 is; nothing is planned yet.
 - 3.2 design (agreed 2026-09-26): Preset row at the top of the component's Value Scope category, Apply Preset dropdown (built-ins, then every `UValueScopePreset` asset) and Save as Preset button; new editor module `CineCamToolsEditor` (3.3's toolbar goes there too).
 
   | Preset | Mode | Overlays |
@@ -43,15 +44,15 @@ Unreal Engine 5.8 plugin of camera tools for teaching lighting, value and compos
 - CineCameraActor hides Auto Activate for Player; use Level Blueprint BeginPlay > Get Player Controller > Set View Target with Blend.
 - The shell here mangles backslashes and quotes in heredocs. For multi-line code edits, write a Python patch script to the scratchpad with the Write tool and run it, or use the Edit tool.
 
-## Current goal: roadmap, step 4
+## Current goal: roadmap, step 5 (not planned yet)
 
-Plumbing and steps 1 to 3 are done. Tim said go on step 4: spot meter, HDR notice first. Work "Step 4 checklist" in order: 4.1 HDR notice, 4.2 live spot meter, 4.3 pins. Each tested and committed on its own.
+Plumbing and steps 1 to 4 are done. Ask Tim what step 5 is; discuss and diagram it before any code. Ideas already raised in the step 4 discussion: reference compare, class handoff sheet, composition overlays, color scope.
 
 Step 4 decisions (Tim, 2026-09-26):
 
 - HDR output: turn every value tool off (modes, zebras, histogram, clip %, waveform, meter), keep the thirds guide and plumbing frame (geometry only), canvas notice bottom left above the override notice, log once. Wrong numbers teach the wrong thing.
 - Spot meter samples the cursor in editor viewports, the frame center otherwise (PIE, games, cursor elsewhere). Fixed box, about 9x9 px at 1080p, scaled with view height. Averages `LumaLevel()`. Readout is level and zone, canvas only, never baked. `bSpotMeter` on the component (keyable), toolbar menu, `r.ValueScope.SpotMeter`. No built-in preset turns it on. Cursor reaches the runtime module through an editor hook, like the toolbar resolver.
-- Pins: up to 4 (A to D), per viewport, not saved, live. Differences from A in levels and zones, never stops (that would need pre-tonemap light). Pinned with a rebindable editor command "Pin Spot Meter Point" (check the default key for conflicts), plus Pin and Clear Pins in the toolbar menu.
+- Pins: up to 4 (A to D), per viewport, not saved, live. Differences from A in levels and zones, never stops (that would need pre-tonemap light). Pinned with a rebindable editor command "Pin Spot Meter Point", default Alt+M, plus Pin and Clear Pins in the toolbar menu.
 
 Step 3 decisions (Tim, 2026-09-25):
 
@@ -274,7 +275,21 @@ For 3.3, start from a working 5.8 example of extending the level viewport toolba
 - [x] Realtime off in a viewport: the reading still updates when you move the mouse (it may lag a frame or two). Known limit, not a fail.
 - [x] `package_plugin.bat` passes.
 
-4.3 pins: checklist written when it starts.
+4.3 pins (`ValueScope::AddSpotPin(State)` pins at `LastCursorUV`, the cursor's last spot over that view's image; `SpotPins` per view state, max 4, appended after the live point, same `SpotMeterCS` dispatch; not saved; `ClearSpotPins` clears every view. Editor: `FValueScopeCommands` in the LevelEditor context, "Pin Spot Meter Point" Alt+M (Alt+M was the first default and didn't work on Tim's machine; Alt+M is also Control Rig's in its edit mode and DMX's in its editor, neither in the normal level editor), "Clear Spot Meter Pins" no default key; both mapped on the level editor's global actions; toolbar menu section "Spot Meter Pins"; notifications for full, meter off, no cursor):
+
+- [x] Build clean.
+- [x] Full editor restart. No errors.
+- [x] Spot Meter on. Hover a bright spot, Alt+M: a yellow box stays there labeled "A  level  Zone N". The white live box keeps following the cursor.
+- [x] Pin B on a darker spot: "B  88  Zone III  (-54, 3 zones under A)" style readout, numbers matching what the live box read there. Pin C in the same zone as A: "same zone as A".
+- [x] Pins read live: change a light's intensity, the pinned numbers follow (after a frame or two).
+- [x] Fifth pin: notification "Four pins is the most...". Nothing added.
+- [x] Spot Meter off, Alt+M: notification "Turn on the Spot Meter first...". Pins hidden while it's off, back when it's on.
+- [x] Toolbar menu: "Spot Meter Pins" section with Pin Point (shows Alt+M) and Clear Pins. Clear Pins removes them everywhere.
+- [x] Four-viewport layout: pins belong to the viewport they were made in.
+- [x] Editor Preferences > Keyboard Shortcuts, search "Spot Meter": both commands listed under Value Scope; rebind Pin to another key and it works. Result: Tim bound Alt+M because Ctrl+Alt+M didn't work; all other checks passed with it. Default changed to Alt+M after.
+- [x] Screen Percentage 50, and resizing the viewport: pins stay on the same spot in the image.
+- [x] HighResShot: no boxes or text.
+- [x] `package_plugin.bat` passes.
 
 ## Rules that should not drift
 
@@ -309,4 +324,6 @@ Done, step 2: GPU histogram with readback (matches Photoshop Luminosity exactly)
 
 Done, step 3: Sequencer keying, presets (four built-ins, preset data assets, Save as Preset), level viewport toolbar. Also fixed: piloted cameras' components weren't found (settings now resolved in BeginRenderViewFamily).
 
-Next (step 4): not planned yet.
+Done, step 4: HDR notice (value tools off on HDR output), spot meter (level and zone at the cursor or frame center), pins A to D with differences from A (Alt+M).
+
+Next (step 5): not planned yet.

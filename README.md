@@ -20,6 +20,7 @@ Overlays (turn on with any mode, including Off):
 - **Clip percentages.** Text under the histogram: how much of the frame is crushed to black and blown to white, counted at the same levels the zebras use. "under 0.1%" still means some clipping; only "0%" means none. It's drawn as screen text, so it never shows up in screenshots.
 - **Waveform.** Top left. Each column of the frame, left to right, with its values from dark (bottom) to bright (top); brighter spots mean more pixels at that value. Shows *where* in the frame the darks and lights sit, which the histogram can't. Clipped values trace in blue and red, like the zebras.
 - **Spot meter.** A small box that reads the value under it, as a level (0 to 255) and a zone (0 to X, the same zones false color paints). In the editor viewport it follows your mouse; in Play and in games it reads the center of the frame. It's screen text, so it never shows up in screenshots.
+  To compare spots, hover one and press **Alt+M** to pin it (A). Pin up to four (A to D). Each pin keeps reading as the lighting changes, and B to D show how far they are from A, in levels and in zones: "B  88  Zone III  (-54, 3 zones under A)". Clear Pins is in the Value Scope menu. The key can be changed in Editor Preferences > Keyboard Shortcuts.
 
 ## Use
 

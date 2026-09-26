@@ -26,4 +26,21 @@ namespace ValueScope
 
 	/** Pass an empty function to clear it. Packaged games never set one. */
 	CINECAMTOOLS_API void SetEditorCursorProvider(FEditorCursorProvider Provider);
+
+	enum class EAddSpotPinResult : uint8
+	{
+		Added,
+		Full,     // Already 4 pins on this view.
+		MeterOff, // The spot meter isn't on for this view.
+		NoCursor, // The cursor hasn't been over this view's image yet.
+	};
+
+	/**
+	 * Pins a spot meter point (A to D) where the cursor was last over this view's image.
+	 * Pins belong to the view, keep reading live, and are not saved. Game thread.
+	 */
+	CINECAMTOOLS_API EAddSpotPinResult AddSpotPin(const FSceneViewStateInterface* State);
+
+	/** Removes every view's pins. Game thread. */
+	CINECAMTOOLS_API void ClearSpotPins();
 }

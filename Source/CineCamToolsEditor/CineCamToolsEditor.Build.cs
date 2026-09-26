@@ -18,6 +18,8 @@ public class CineCamToolsEditor : ModuleRules
 			"AssetRegistry",
 			"AssetTools",
 			"DeveloperSettings",
+			"InputCore",
+			"LevelEditor",
 			"PropertyEditor",
 			"Settings",
 			"Slate",

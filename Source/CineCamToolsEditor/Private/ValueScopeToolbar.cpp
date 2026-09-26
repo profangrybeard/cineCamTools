@@ -1,5 +1,9 @@
 #include "ValueScopeToolbar.h"
 #include "Editor.h"
+#include "Framework/Notifications/NotificationManager.h"
+#include "LevelEditor.h"
+#include "ValueScopeCommands.h"
+#include "Widgets/Notifications/SNotificationList.h"
 #include "ISettingsModule.h"
 #include "LevelEditorViewport.h"
 #include "Modules/ModuleManager.h"
@@ -34,6 +38,9 @@ namespace
 	{
 		return bChecked ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 	}
+
+	void PinUnderCursor();
+	void ClearPins();
 
 	FText ButtonLabel()
 	{
@@ -148,6 +155,16 @@ namespace
 		AddOverlayEntry(Overlays, "SpotMeter", LOCTEXT("SpotMeter", "Spot Meter"),
 			LOCTEXT("SpotMeterTip", "Reads the value under the cursor: level 0 to 255 and zone 0 to X."), &FValueScopeSettings::bSpotMeter);
 
+		FToolMenuSection& Pins = Menu->AddSection("Pins", LOCTEXT("Pins", "Spot Meter Pins"));
+		FToolMenuEntry& Pin = Pins.AddMenuEntry("PinSpot", LOCTEXT("Pin", "Pin Point"),
+			LOCTEXT("PinTip", "Pin a point (A to D) where the cursor last was over the image. Quicker with the key: hover and press it."),
+			FSlateIcon(), FUIAction(FExecuteAction::CreateStatic(&PinUnderCursor)));
+		Pin.InputBindingLabel = FValueScopeCommands::Get().PinSpot->GetInputText();
+		FToolMenuEntry& Clear = Pins.AddMenuEntry("ClearPins", LOCTEXT("ClearPins", "Clear Pins"),
+			LOCTEXT("ClearPinsTip", "Remove every pin, in every viewport."),
+			FSlateIcon(), FUIAction(FExecuteAction::CreateStatic(&ClearPins)));
+		Clear.InputBindingLabel = FValueScopeCommands::Get().ClearPins->GetInputText();
+
 		FToolMenuSection& More = Menu->AddSection("More");
 		More.AddMenuEntry("MoreSettings", LOCTEXT("MoreSettings", "More Settings..."),
 			LOCTEXT("MoreSettingsTip", "Notan thresholds and clip levels, in Editor Preferences > Plugins > Value Scope."),
@@ -188,6 +205,68 @@ namespace
 		}
 		return nullptr;
 	}
+
+	void Notify(const FText& Message)
+	{
+		FNotificationInfo Info(Message);
+		Info.ExpireDuration = 4.0f;
+		FSlateNotificationManager::Get().AddNotification(Info);
+	}
+
+	// The level viewport under the mouse, or the last one used.
+	FLevelEditorViewportClient* ViewportUnderCursor()
+	{
+		if (GEditor)
+		{
+			for (FLevelEditorViewportClient* Client : GEditor->GetLevelViewportClients())
+			{
+				if (Client && Client->Viewport)
+				{
+					FIntPoint Mouse;
+					Client->Viewport->GetMousePos(Mouse);
+					const FIntPoint Size = Client->Viewport->GetSizeXY();
+					if (Mouse.X >= 0 && Mouse.Y >= 0 && Mouse.X < Size.X && Mouse.Y < Size.Y)
+					{
+						return Client;
+					}
+				}
+			}
+		}
+		return GCurrentLevelEditingViewportClient;
+	}
+
+	void PinUnderCursor()
+	{
+		FLevelEditorViewportClient* Client = ViewportUnderCursor();
+		if (!Client)
+		{
+			return;
+		}
+		switch (ValueScope::AddSpotPin(Client->ViewState.GetReference()))
+		{
+		case ValueScope::EAddSpotPinResult::Added:
+			break;
+		case ValueScope::EAddSpotPinResult::Full:
+			Notify(LOCTEXT("PinsFull", "Four pins is the most. Clear Pins to start over."));
+			break;
+		case ValueScope::EAddSpotPinResult::MeterOff:
+			Notify(LOCTEXT("PinsMeterOff", "Turn on the Spot Meter first (Value Scope menu, or the camera's Value Scope)."));
+			break;
+		case ValueScope::EAddSpotPinResult::NoCursor:
+			Notify(LOCTEXT("PinsNoCursor", "Move the mouse over the viewport image, then pin."));
+			break;
+		}
+		Client->Invalidate();
+	}
+
+	void ClearPins()
+	{
+		ValueScope::ClearSpotPins();
+		if (GEditor)
+		{
+			GEditor->RedrawLevelEditingViewports();
+		}
+	}
 }
 
 void ValueScopeToolbar::Register(void* Owner)
@@ -202,6 +281,11 @@ void ValueScopeToolbar::Register(void* Owner)
 		OutSettings = S.Settings;
 		return true;
 	});
+
+	FValueScopeCommands::Register();
+	FLevelEditorModule& LevelEditor = FModuleManager::LoadModuleChecked<FLevelEditorModule>("LevelEditor");
+	LevelEditor.GetGlobalLevelEditorActions()->MapAction(FValueScopeCommands::Get().PinSpot, FExecuteAction::CreateStatic(&PinUnderCursor));
+	LevelEditor.GetGlobalLevelEditorActions()->MapAction(FValueScopeCommands::Get().ClearPins, FExecuteAction::CreateStatic(&ClearPins));
 
 	// The spot meter follows the mouse while it's over a level viewport.
 	ValueScope::SetEditorCursorProvider([](const FSceneViewStateInterface* State, FVector2D& OutViewportPixel)
@@ -251,6 +335,15 @@ void ValueScopeToolbar::Unregister(void* Owner)
 {
 	ValueScope::SetEditorViewportResolver({});
 	ValueScope::SetEditorCursorProvider({});
+	if (FLevelEditorModule* LevelEditor = FModuleManager::GetModulePtr<FLevelEditorModule>("LevelEditor"))
+	{
+		if (FValueScopeCommands::IsRegistered())
+		{
+			LevelEditor->GetGlobalLevelEditorActions()->UnmapAction(FValueScopeCommands::Get().PinSpot);
+			LevelEditor->GetGlobalLevelEditorActions()->UnmapAction(FValueScopeCommands::Get().ClearPins);
+		}
+	}
+	FValueScopeCommands::Unregister();
 	if (UObjectInitialized())
 	{
 		UToolMenus::UnRegisterStartupCallback(StartupHandle);
