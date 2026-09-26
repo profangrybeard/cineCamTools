@@ -5,7 +5,15 @@ Unreal Engine 5.8 plugin of camera tools for teaching lighting, value and compos
 ## Where we left off (2026-09-26)
 
 - Step 3.1 (Sequencer keying) passed every editor check on 2026-09-26 and is committed as "Value Scope step 3.1: Sequencer keying". Push when Tim says.
-- Next action: 3.2 presets. Discuss and diagram the design with Tim, write its checklist, wait for "go".
+- Pilot fix passed Tim's editor checks and is committed ("Value Scope: resolve settings after the view is complete"). Push when Tim says.
+- Then 3.2 presets. Design agreed: dropdown picker in the component's Details (built-ins, separator, preset assets), the four built-ins in the table below, and a Save as Preset button. Needs the editor module `CineCamToolsEditor` now. Write the 3.2 checklist, wait for "go".
+
+  | Preset | Mode | Overlays |
+  |---|---|---|
+  | Notan | Notan (0.25 / 0.75) | none |
+  | Value Check | False Color | Histogram |
+  | Exposure | Off | Clip Zebras, Histogram, Clip Percentages, Waveform |
+  | Composition | Notan | Thirds Guide |
 
 ## Working with Tim
 
@@ -80,7 +88,7 @@ Config/FilterPlugin.ini       Stock template from BuildPlugin, nothing listed ye
 ## How it works
 
 1. `UValueScopeComponent` sits on a CineCameraActor and holds `FValueScopeSettings` (all `Interp`, so Sequencer can key them).
-2. `FValueScopeViewExtension::SetupView` (game thread) reads the component off `InView.ViewActor`, applies the `r.ValueScope.*` cvar overrides, and stores settings in `Pending` (plus a HighResShot flag from `GIsHighResScreenshot`) keyed by the view's `State` pointer. It also keeps a game-thread copy in `CanvasSettings` for the canvas text.
+2. `FValueScopeViewExtension::BeginRenderViewFamily` (game thread, per view via `ResolveView`; not `SetupView`, see "Resolved") reads the component off `InView.ViewActor`, applies the `r.ValueScope.*` cvar overrides, and stores settings in `Pending` (plus a HighResShot flag from `GIsHighResScreenshot`) keyed by the view's `State` pointer. It also keeps a game-thread copy in `CanvasSettings` for the canvas text.
 3. `SubscribeToPostProcessingPass` (render thread) takes those settings for `EPostProcessingPass::Tonemap` and adds `AfterTonemap_RenderThread`.
 4. That callback, in order: `HistogramCS` (if Histogram or Clip Percentages; queues a GPU readback into a 4-slot ring per view), `HistogramMaxCS` (if the histogram panel is on), `WaveformCS` (if Waveform), then `FValueScopePS` full screen, which draws the mode, zebras, thirds, waveform panel, histogram panel and plumbing frame. If `Inputs.OverrideOutput` is valid it must write there, because it's the backbuffer when Tonemap is the last pass.
 5. Canvas text goes through `UDebugDrawService` ("Rendering" show flag, so every editor and game viewport): the console override notice (bottom left) and the clip percentages (under the histogram panel, from the latest readback). Canvas units are pixels / DPI. Skipped during HighResShot.
@@ -177,6 +185,16 @@ Full editor restart after building (new UPROPERTYs and shader params, Live Codin
 - [x] Movie Render Queue, a frame each side of 60: the renders show the switch.
 - [x] `package_plugin.bat` passes.
 
+Pilot fix (settings now resolved in `BeginRenderViewFamily`, because `ViewActor` was null in `SetupView` for piloted editor viewports):
+
+- [x] Build clean.
+- [x] Editor opens, all `r.ValueScope.*` cvars at -1 (`r.ValueScope.Thirds` was left at 1).
+- [x] Pilot the CineCamera with the component: its histogram, waveform and thirds show. Eject: they go away.
+- [x] Sequencer: scrub the 3.1 Mode keys while piloting, the view switches at 60.
+- [x] PIE through the camera: still works.
+- [x] Piloting, Game View, `HighResShot 1`: panels are baked into the PNG.
+- [x] `package_plugin.bat` passes.
+
 3.2 presets, 3.3 toolbar: checklists written when each starts.
 
 For 3.3, start from a working 5.8 example of extending the level viewport toolbar: `Engine/Plugins/Developer/RenderDocPlugin/Source/RenderDocPlugin/Private/SRenderDocPluginEditorExtension.cpp` (also PixWinPlugin and GPUReshape). The menu is `LevelEditor.ViewportToolbar` (`SLevelViewport.cpp:2316`).
@@ -191,9 +209,8 @@ For 3.3, start from a working 5.8 example of extending the level viewport toolba
 
 ## Known risks, most likely first
 
-1. `InView.ViewActor` may be null in editor viewports. That's why the cvar exists.
-2. In editor viewports with icons showing, the editor primitive composite runs after our Tonemap hook and changes pixels (not just the icons), so the histogram differs from a HighResShot of that view by a few percent. Game View (G), PIE, games and Movie Render Queue don't run it, and there the histogram matches the PNG. No post-process hook exists after it. The dump line says "other passes follow ours" when this applies.
-3. HDR output after Tonemap is PQ or scRGB, not 0 to 1. Out of scope. Skip or warn later.
+1. In editor viewports with icons showing, the editor primitive composite runs after our Tonemap hook and changes pixels (not just the icons), so the histogram differs from a HighResShot of that view by a few percent. Game View (G), PIE, games and Movie Render Queue don't run it, and there the histogram matches the PNG. No post-process hook exists after it. The dump line says "other passes follow ours" when this applies.
+2. HDR output after Tonemap is PQ or scRGB, not 0 to 1. Out of scope. Skip or warn later.
 
 When a risk is resolved, fix the code, delete the item here, and say what 5.8 actually does.
 
@@ -202,7 +219,8 @@ Resolved against the 5.8.3 install (CL 58210709):
 - `ScreenPass.h` and `PostProcess/PostProcessMaterialInputs.h` are both in `Renderer/Public`. The Private and Internal include fallbacks are gone from both Build.cs files.
 - `SubscribeToPostProcessingPass(EPostProcessingPass, const FSceneView&, FPostProcessingPassDelegateArray&, bool)` is the live overload. The one without the view is deprecated since 5.5. `FAfterPassCallbackDelegate(Array)` are aliases for `FPostProcessingPassDelegate(Array)`.
 - `Inputs.GetInput(...)` returns `FScreenPassTextureSlice`. `FScreenPassTexture::CopyFromSlice(GraphBuilder, Slice)` returns `FScreenPassTexture`. `Inputs.OverrideOutput` is an `FScreenPassRenderTarget`.
-- `Pending` can't be keyed by view pointer. The renderer copies each `FSceneView` into a new `FViewInfo` (`SceneRendering.cpp`, `Views.Emplace_GetRef(InViewFamily->Views[i])`), so `SubscribeToPostProcessingPass` sees a different address than `SetupView`. It's now keyed by `InView.State`, which is copied over and unique per view. Views with no State get no overlay.
+- `Pending` can't be keyed by view pointer. The renderer copies each `FSceneView` into a new `FViewInfo` (`SceneRendering.cpp`, `Views.Emplace_GetRef(InViewFamily->Views[i])`), so `SubscribeToPostProcessingPass` sees a different address than the game thread did. It's now keyed by `InView.State`, which is copied over and unique per view. Views with no State get no overlay.
+- `InView.ViewActor` is null during `SetupView` in a level viewport, even while piloting: `FEditorViewportClient::CalcSceneView` calls `SetupView` (`EditorViewportClient.cpp:1650`), and only afterward does `FLevelEditorViewportClient::CalcSceneView` set `ViewActor` to the locked actor (`LevelEditorViewport.cpp:2563`). A free (unpiloted) viewport has no ViewActor at all. We resolve settings in `BeginRenderViewFamily` instead (`SceneRenderBuilder.cpp:511`, game thread, after all views are complete, before the renderer copies them). Scene captures also go through `CreateSceneRenderer`, so they behave as before. Found 2026-09-26: step 1 to 3.1 component checks all ran in PIE, where `LocalPlayer.cpp` sets ViewActor before `SetupView`.
 
 ## Roadmap
 

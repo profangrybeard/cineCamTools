@@ -18,8 +18,8 @@ public:
 
 	// Game thread
 	virtual void SetupViewFamily(FSceneViewFamily& InViewFamily) override {}
-	virtual void SetupView(FSceneViewFamily& InViewFamily, FSceneView& InView) override;
-	virtual void BeginRenderViewFamily(FSceneViewFamily& InViewFamily) override {}
+	virtual void SetupView(FSceneViewFamily& InViewFamily, FSceneView& InView) override {}
+	virtual void BeginRenderViewFamily(FSceneViewFamily& InViewFamily) override;
 
 	// Render thread
 	virtual void SubscribeToPostProcessingPass(EPostProcessingPass Pass, const FSceneView& InView,
@@ -39,7 +39,10 @@ private:
 	FScreenPassTexture AfterTonemap_RenderThread(FRDGBuilder& GraphBuilder, const FSceneView& View,
 		const FPostProcessMaterialInputs& Inputs, FValueScopeSettings Settings, bool bHighResShot);
 
-	// Settings resolved on the game thread in SetupView, consumed once on the render thread.
+	// Game thread. Resolves one view's settings (component, then cvars) into Pending and CanvasSettings.
+	void ResolveView(const FSceneView& InView);
+
+	// Settings resolved on the game thread in BeginRenderViewFamily, consumed once on the render thread.
 	// Keyed by view state, not view pointer: the renderer copies each FSceneView into an
 	// FViewInfo, so the view pointer changes but the State pointer carries over.
 	struct FPendingView

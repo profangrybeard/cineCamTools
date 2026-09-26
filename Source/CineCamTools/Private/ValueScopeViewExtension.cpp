@@ -273,7 +273,22 @@ void FValueScopeViewExtension::DrawClipPercentages(UCanvas* Canvas)
 	Canvas->DrawItem(Text);
 }
 
-void FValueScopeViewExtension::SetupView(FSceneViewFamily& InViewFamily, FSceneView& InView)
+// Not SetupView: editor viewports call SetupView before they set ViewActor to the piloted
+// actor (EditorViewportClient.cpp CalcSceneView, then LevelEditorViewport.cpp sets it), so a
+// piloted camera's component was never found. BeginRenderViewFamily runs after every view is
+// complete and before the renderer copies them.
+void FValueScopeViewExtension::BeginRenderViewFamily(FSceneViewFamily& InViewFamily)
+{
+	for (const FSceneView* View : InViewFamily.Views)
+	{
+		if (View)
+		{
+			ResolveView(*View);
+		}
+	}
+}
+
+void FValueScopeViewExtension::ResolveView(const FSceneView& InView)
 {
 	FValueScopeSettings Settings;
 	bool bActive = false;
@@ -366,7 +381,7 @@ void FValueScopeViewExtension::SetupView(FSceneViewFamily& InViewFamily, FSceneV
 	FScopeLock Lock(&PendingLock);
 	if (bActive && Settings.IsActive())
 	{
-		// HighResShot sets this while it draws its frame, and SetupView runs inside that draw.
+		// HighResShot sets this while it draws its frame, and BeginRenderViewFamily runs inside that draw.
 		Pending.Add(InView.State, FPendingView{ Settings, GIsHighResScreenshot });
 	}
 	else
