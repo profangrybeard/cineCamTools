@@ -2,11 +2,10 @@
 
 Unreal Engine 5.8 plugin of camera tools for teaching lighting, value and composition at SCAD ITGM/GAME. First tool is **Value Scope**: overlays drawn on the final, post-tonemap image so students judge value in engine the way they'd judge it with a Photoshop histogram.
 
-## Where we left off (2026-09-25, end of session)
+## Where we left off (2026-09-26)
 
-- Last pushed commit: `4d38342` (step 2.4 waveform). Step 2 is complete and pushed.
-- Step 3.1 (Sequencer keying) is written, builds clean, and `package_plugin.bat` passes, but it is NOT tested in the editor. It's pushed as a WIP commit right after `4d38342` ("WIP step 3.1"): `ValueScopeComponent.h` (all properties `Interp`, class comment), `README.md` (keying paragraph), this file.
-- Next action: Tim runs the 3.1 editor checks (see "Step 3 checklist"). If they pass, tick them and commit "Value Scope step 3.1: Sequencer keying" (push when Tim says). Then 3.2 presets.
+- Step 3.1 (Sequencer keying) passed every editor check on 2026-09-26 and is committed as "Value Scope step 3.1: Sequencer keying". Push when Tim says.
+- Next action: 3.2 presets. Discuss and diagram the design with Tim, write its checklist, wait for "go".
 
 ## Working with Tim
 
@@ -171,11 +170,11 @@ Full editor restart after building (new UPROPERTYs and shader params, Live Codin
 
 3.1 Sequencer keying (every component setting and Enabled are `Interp`, like the CineCamera's lens settings):
 
-- [ ] Build clean, editor opens.
-- [ ] Level Sequence with the CineCameraActor added: on its ValueScope component, + Track lists the Value Scope settings (Enabled, Mode, Clip Zebras, Histogram, and the rest).
-- [ ] Key Mode Notan at frame 0 and False Color at frame 60. Scrub while piloting the camera (or through a Camera Cut): the view switches at 60.
-- [ ] Key a bool (Clip Zebras on at 30) and a float (Shadow Threshold 0.25 to 0.5 over 0 to 60): both follow the timeline.
-- [ ] Movie Render Queue, a frame each side of 60: the renders show the switch.
+- [x] Build clean, editor opens.
+- [x] Level Sequence with the CineCameraActor added: on its ValueScope component, + Track lists the Value Scope settings (Enabled, Mode, Clip Zebras, Histogram, and the rest).
+- [x] Key Mode Notan at frame 0 and False Color at frame 60. Scrub while piloting the camera (or through a Camera Cut): the view switches at 60.
+- [x] Key a bool (Clip Zebras on at 30) and a float (Shadow Threshold 0.25 to 0.5 over 0 to 60): both follow the timeline.
+- [x] Movie Render Queue, a frame each side of 60: the renders show the switch.
 - [x] `package_plugin.bat` passes.
 
 3.2 presets, 3.3 toolbar: checklists written when each starts.
