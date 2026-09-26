@@ -69,10 +69,14 @@ struct FValueScopeSettings
 	UPROPERTY(Interp, EditAnywhere, BlueprintReadWrite, Category = "Value Scope")
 	bool bWaveform = false;
 
+	/** Reads the value under a small box: the cursor in editor viewports, the frame center in PIE and games. Shows level 0 to 255 and zone 0 to X. Not baked into screenshots. */
+	UPROPERTY(Interp, EditAnywhere, BlueprintReadWrite, Category = "Value Scope")
+	bool bSpotMeter = false;
+
 	/** True if anything would be drawn or measured. */
 	bool IsActive() const
 	{
-		return Mode != EValueScopeMode::Off || bClipZebras || bThirdsGuide || bHistogram || bClipPercentages || bWaveform;
+		return Mode != EValueScopeMode::Off || bClipZebras || bThirdsGuide || bHistogram || bClipPercentages || bWaveform || bSpotMeter;
 	}
 };
 

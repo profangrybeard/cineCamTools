@@ -112,6 +112,37 @@ public:
 	}
 };
 
+// Spot meter: sums LumaLevel() over a square box around each point. One group per point.
+// Output layout is Point * 2 + 0 = sum of levels, Point * 2 + 1 = pixels counted.
+class CINECAMTOOLSSHADERS_API FValueScopeSpotMeterCS : public FGlobalShader
+{
+public:
+	DECLARE_GLOBAL_SHADER(FValueScopeSpotMeterCS);
+	SHADER_USE_PARAMETER_STRUCT(FValueScopeSpotMeterCS, FGlobalShader);
+
+	// The live point plus up to 4 pins (step 4.3).
+	static constexpr int32 MaxPoints = 5;
+
+	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+		SHADER_PARAMETER_STRUCT(FScreenPassTextureViewportParameters, Input)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, InputTexture)
+		SHADER_PARAMETER_ARRAY(FVector4f, SpotPoints, [MaxPoints]) // xy = position in the view, 0 to 1
+		SHADER_PARAMETER(int32, SpotHalfSize)                      // box is 2 * this + 1 input pixels wide
+		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<uint>, SpotOut)
+	END_SHADER_PARAMETER_STRUCT()
+
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
+	{
+		return IsFeatureLevelSupported(Parameters.Platform, ERHIFeatureLevel::SM5);
+	}
+
+	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
+	{
+		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
+		OutEnvironment.SetDefine(TEXT("SPOT_MAX_POINTS"), MaxPoints);
+	}
+};
+
 // Tallest histogram bin in levels 1 to 254, the panel's height reference. One group of 256 threads.
 class CINECAMTOOLSSHADERS_API FValueScopeHistogramMaxCS : public FGlobalShader
 {

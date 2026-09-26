@@ -7,7 +7,8 @@ Unreal Engine 5.8 plugin of camera tools for teaching lighting, value and compos
 - 3.1 and the pilot fix are committed and pushed (`d684851`).
 - 3.2 presets is committed and pushed (`3e7bd28`).
 - Step 3 is done and pushed (`3ea53d1`).
-- Step 4 (spot meter) agreed 2026-09-26, see "Step 4 checklist". 4.1 HDR notice (plus toolbar label fix) passed on 2026-09-26, two checks skipped for lack of an HDR display, committed as "Value Scope step 4.1: HDR notice". Push when Tim says. Next: 4.2 live spot meter, write its checklist and wait for go.
+- Step 4 (spot meter) agreed 2026-09-26, see "Step 4 checklist". 4.1 HDR notice (plus toolbar label fix) is committed and pushed (`7eb65b0`); two checks skipped for lack of an HDR display.
+- 4.2 live spot meter passed on 2026-09-26 and is committed ("Value Scope step 4.2: spot meter"). Push when Tim says. Next: 4.3 pins, write its checklist and wait for go.
 - 3.2 design (agreed 2026-09-26): Preset row at the top of the component's Value Scope category, Apply Preset dropdown (built-ins, then every `UValueScopePreset` asset) and Save as Preset button; new editor module `CineCamToolsEditor` (3.3's toolbar goes there too).
 
   | Preset | Mode | Overlays |
@@ -110,9 +111,11 @@ Shared math: `LumaLevel()` in the shader is the one definition of a pixel's leve
 
 Modes: 0 off, 1 plumbing check (image untouched, 6px magenta frame on the view rect edges), 2 notan, 3 false color (11 zones, palette shared with `value_report.py`).
 
+Spot meter (step 4.2): canvas box at the cursor (editor) or frame center (PIE, games), readout "level  Zone N" from `SpotMeterCS` via a readback ring, 2 to 3 frames late. Never baked.
+
 Overlays, on top of any mode including Off: clip zebras (diagonal stripes, red at or above White Clip, blue at or below Black Clip, tested on the source luma) and the thirds guide. Stripe period and line width scale with view height (1x per 540 px).
 
-Cvars: `r.ValueScope.Mode` -1 component, 0 everything off, 1 to 3 force mode. `r.ValueScope.Zebras`, `r.ValueScope.Thirds`, `r.ValueScope.Histogram`, `r.ValueScope.ClipPercent` and `r.ValueScope.Waveform` -1 component, 0 force off, 1 force on. `r.ValueScope.DumpHistogram` writes each view's latest histogram (from the GPU readback) to `Saved/ValueScope/*.csv`. With no component on the view target, only what a cvar forces is drawn. While any override is set, a yellow on-screen notice says so (`r.ValueScope.OverrideMessage 0` hides it, and so does `DisableAllScreenMessages`; it never shows in HighResShot).
+Cvars: `r.ValueScope.Mode` -1 component, 0 everything off, 1 to 3 force mode. `r.ValueScope.Zebras`, `r.ValueScope.Thirds`, `r.ValueScope.Histogram`, `r.ValueScope.ClipPercent`, `r.ValueScope.Waveform` and `r.ValueScope.SpotMeter` -1 component, 0 force off, 1 force on. `r.ValueScope.DumpHistogram` writes each view's latest histogram (from the GPU readback) to `Saved/ValueScope/*.csv`. With no component on the view target, only what a cvar forces is drawn. While any override is set, a yellow on-screen notice says so (`r.ValueScope.OverrideMessage 0` hides it, and so does `DisableAllScreenMessages`; it never shows in HighResShot).
 
 ## Build
 
@@ -255,7 +258,23 @@ For 3.3, start from a working 5.8 example of extending the level viewport toolba
 - [x] Toolbar label (folded in 2026-09-26): with Mode Off it said "Value Scope: Off" while enabled, which read as the scope being off. Now: Notan or False Color by mode, "Overlays" with Mode Off and any overlay (Exposure preset), "On" with nothing selected. Disabled: plain "Value Scope".
 - [x] `package_plugin.bat` passes.
 
-4.2 live spot meter, 4.3 pins: checklists written when each starts.
+4.2 live spot meter (`bSpotMeter` on the component, toolbar Overlays menu, `r.ValueScope.SpotMeter`; `SpotMeterCS` averages `LumaLevel()` in a box of 2 * (2 * Scale) + 1 measured pixels, Scale = max(1, round(height / 540)), so 9 x 9 at 1080p; its own 4-slot readback ring; `ValueScope::SetEditorCursorProvider` gives the cursor in level viewports, frame center otherwise; canvas box plus "142  Zone VI"; zone uses false color's floor(level / 255 * 10.999); HDR turns it off like the other value tools):
+
+- [x] Build clean.
+- [x] Full editor restart (new shader, new UPROPERTY). No `ValueScope.usf` errors.
+- [x] Toolbar: Overlays has Spot Meter. Turn it on: a small white-and-black box follows the cursor in the level viewport, with "level  Zone N" to its right. Label says "Value Scope: Overlays" if nothing else is on.
+- [x] Readings make sense: sky high (200s), deep shadow low. Mode 3 (false color) on: the zone in the readout matches the color under the box.
+- [x] Move the cursor off the viewport (onto the Details panel): the box jumps to the frame center and keeps reading.
+- [x] Four-viewport layout: the box follows the cursor in whichever viewport it's over; the others read their centers.
+- [x] Screen Percentage 50: box stays the same size on screen and under the cursor.
+- [x] Exact check (Game View, nothing selected, cursor off the viewport so it reads the center, flat area at center if possible): note the number, `HighResShot 1`, tell Claude the number and the file. Claude averages the same center box in the PNG. Within 1 level (Lumen noise between live frames). 2026-09-26: Tim reports pass; Claude did not compare the PNG itself.
+- [x] HighResShot has no box and no text in it.
+- [x] Component: Spot Meter on the CineCamera's Value Scope, PIE through it: reads the frame center. Pilot the camera in the editor: follows the cursor. Key it in Sequencer: follows the timeline.
+- [x] `r.ValueScope.SpotMeter 1` on a view with nothing else: meter shows, yellow notice lists "SpotMeter 1". `-1`: back.
+- [x] Realtime off in a viewport: the reading still updates when you move the mouse (it may lag a frame or two). Known limit, not a fail.
+- [x] `package_plugin.bat` passes.
+
+4.3 pins: checklist written when it starts.
 
 ## Rules that should not drift
 

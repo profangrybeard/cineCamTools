@@ -44,7 +44,8 @@ static bool IsHDROutput(const FSceneViewFamily& Family)
 static bool ReadsValues(const FValueScopeSettings& Settings)
 {
 	return Settings.Mode == EValueScopeMode::Notan || Settings.Mode == EValueScopeMode::FalseColor
-		|| Settings.bClipZebras || Settings.bHistogram || Settings.bClipPercentages || Settings.bWaveform;
+		|| Settings.bClipZebras || Settings.bHistogram || Settings.bClipPercentages || Settings.bWaveform
+		|| Settings.bSpotMeter;
 }
 
 // Set by CineCamToolsEditor for the level viewport toolbar. Game thread only.
@@ -54,6 +55,28 @@ void ValueScope::SetEditorViewportResolver(FEditorViewportResolver Resolver)
 {
 	check(IsInGameThread());
 	GEditorViewportResolver = MoveTemp(Resolver);
+}
+
+// Set by CineCamToolsEditor so the spot meter can follow the mouse. Game thread only.
+static ValueScope::FEditorCursorProvider GEditorCursorProvider;
+
+void ValueScope::SetEditorCursorProvider(FEditorCursorProvider Provider)
+{
+	check(IsInGameThread());
+	GEditorCursorProvider = MoveTemp(Provider);
+}
+
+// Zone 0 to 10 of a level, the same formula false color paints with (floor(luma * 10.999)).
+static int32 ZoneOfLevel(int32 Level)
+{
+	return FMath::Clamp(FMath::FloorToInt32(Level / 255.0f * 10.999f), 0, 10);
+}
+
+static const TCHAR* ZoneName(int32 Zone)
+{
+	static const TCHAR* Names[] = { TEXT("0"), TEXT("I"), TEXT("II"), TEXT("III"), TEXT("IV"), TEXT("V"),
+		TEXT("VI"), TEXT("VII"), TEXT("VIII"), TEXT("IX"), TEXT("X") };
+	return Names[FMath::Clamp(Zone, 0, 10)];
 }
 
 // Editor viewports that aren't in Realtime only repaint on input, so a cvar change
@@ -122,6 +145,15 @@ static TAutoConsoleVariable<int32> CVarValueScopeWaveform(
 	FConsoleVariableDelegate::CreateStatic(&OnValueScopeCVarChanged),
 	ECVF_Default);
 
+static TAutoConsoleVariable<int32> CVarValueScopeSpotMeter(
+	TEXT("r.ValueScope.SpotMeter"),
+	-1,
+	TEXT("-1: use the Value Scope component (default)\n")
+	TEXT(" 0: force the spot meter off\n")
+	TEXT(" 1: force the spot meter on, on every view (cursor in editor viewports, frame center otherwise)"),
+	FConsoleVariableDelegate::CreateStatic(&OnValueScopeCVarChanged),
+	ECVF_Default);
+
 static FAutoConsoleCommand CmdValueScopeDumpHistogram(
 	TEXT("r.ValueScope.DumpHistogram"),
 	TEXT("Writes the latest luma histogram of each view to Saved/ValueScope as CSV (level,count). The histogram must be on."),
@@ -169,6 +201,66 @@ void FValueScopeViewExtension::DrawCanvas(UCanvas* Canvas, APlayerController* PC
 	DrawOverrideNotice(Canvas);
 	DrawHDRNotice(Canvas);
 	DrawClipPercentages(Canvas);
+	DrawSpotMeter(Canvas);
+}
+
+void FValueScopeViewExtension::DrawSpotMeter(UCanvas* Canvas)
+{
+	const FSceneView* View = Canvas->SceneView;
+	if (!View || !View->State)
+	{
+		return;
+	}
+	const FSpotPoints* Points = CanvasSpots.Find(View->State);
+	if (!Points || Points->IsEmpty())
+	{
+		return;
+	}
+
+	TArray<int32> Levels;
+	{
+		FScopeLock Lock(&LatestLock);
+		if (const TArray<int32>* Found = LatestSpot.Find(View->State))
+		{
+			Levels = *Found;
+		}
+	}
+
+	// Box drawn where the meter reads now; the number is the latest readback (2 to 3 frames old).
+	// Size matches the measured box: 2 * (2 * Scale) + 1 pixels, Scale = 1 per 540 px of view height.
+	const FIntRect Rect = View->UnscaledViewRect;
+	const float ToCanvas = 1.0f / Canvas->Canvas->GetDPIScale();
+	const float Scale = FMath::Max(1.0f, FMath::RoundToFloat(Rect.Height() / 540.0f));
+	const float Side = 4.0f * Scale + 1.0f;
+
+	for (int32 Index = 0; Index < Points->Num(); ++Index)
+	{
+		const FVector2f UV = (*Points)[Index];
+		const FVector2D Center(Rect.Min.X + UV.X * Rect.Width(), Rect.Min.Y + UV.Y * Rect.Height());
+		const FVector2D BoxMin = (Center - FVector2D(Side * 0.5f)) * ToCanvas;
+		const FVector2D BoxSize = FVector2D(Side) * ToCanvas;
+
+		// Black then white outline, so it shows on any value.
+		FCanvasBoxItem Outer(BoxMin - FVector2D(1.0), BoxSize + FVector2D(2.0));
+		Outer.SetColor(FLinearColor::Black);
+		Canvas->DrawItem(Outer);
+		FCanvasBoxItem Inner(BoxMin, BoxSize);
+		Inner.SetColor(FLinearColor::White);
+		Canvas->DrawItem(Inner);
+
+		if (!Levels.IsValidIndex(Index) || Levels[Index] < 0)
+		{
+			continue; // First readback is still 2 to 3 frames away.
+		}
+		const int32 Level = Levels[Index];
+		FCanvasTextItem Text(
+			FVector2D(BoxMin.X + BoxSize.X + 6.0f * Scale * ToCanvas, BoxMin.Y - 2.0f * Scale * ToCanvas),
+			FText::FromString(FString::Printf(TEXT("%d  Zone %s"), Level, ZoneName(ZoneOfLevel(Level)))),
+			GEngine->GetSmallFont(), FLinearColor::White);
+		Text.Scale = FVector2D(Scale * 0.5f); // 1 at 1080p, 2 at 4K
+		Text.EnableShadow(FLinearColor::Black);
+		Canvas->DrawItem(Text);
+	}
 }
 
 void FValueScopeViewExtension::DrawHDRNotice(UCanvas* Canvas)
@@ -203,6 +295,7 @@ void FValueScopeViewExtension::DrawOverrideNotice(UCanvas* Canvas)
 	const int32 ForcedHistogram = CVarValueScopeHistogram.GetValueOnGameThread();
 	const int32 ForcedClipPercent = CVarValueScopeClipPercent.GetValueOnGameThread();
 	const int32 ForcedWaveform = CVarValueScopeWaveform.GetValueOnGameThread();
+	const int32 ForcedSpotMeter = CVarValueScopeSpotMeter.GetValueOnGameThread();
 
 	TArray<FString> Parts;
 	if (ForcedMode == 0)
@@ -232,6 +325,10 @@ void FValueScopeViewExtension::DrawOverrideNotice(UCanvas* Canvas)
 	if (ForcedWaveform >= 0)
 	{
 		Parts.Add(FString::Printf(TEXT("Waveform %d"), ForcedWaveform));
+	}
+	if (ForcedSpotMeter >= 0)
+	{
+		Parts.Add(FString::Printf(TEXT("SpotMeter %d"), ForcedSpotMeter));
 	}
 	if (Parts.Num() == 0)
 	{
@@ -379,6 +476,7 @@ void FValueScopeViewExtension::ResolveView(const FSceneView& InView)
 	const int32 ForcedHistogram = CVarValueScopeHistogram.GetValueOnGameThread();
 	const int32 ForcedClipPercent = CVarValueScopeClipPercent.GetValueOnGameThread();
 	const int32 ForcedWaveform = CVarValueScopeWaveform.GetValueOnGameThread();
+	const int32 ForcedSpotMeter = CVarValueScopeSpotMeter.GetValueOnGameThread();
 
 	if (ForcedMode == 0)
 	{
@@ -416,6 +514,11 @@ void FValueScopeViewExtension::ResolveView(const FSceneView& InView)
 			Settings.bWaveform = ForcedWaveform != 0;
 			bActive = true;
 		}
+		if (ForcedSpotMeter >= 0)
+		{
+			Settings.bSpotMeter = ForcedSpotMeter != 0;
+			bActive = true;
+		}
 	}
 
 	// HDR output after Tonemap is PQ or scRGB, not 0 to 255, so every value tool would show wrong
@@ -431,6 +534,7 @@ void FValueScopeViewExtension::ResolveView(const FSceneView& InView)
 		Settings.bHistogram = false;
 		Settings.bClipPercentages = false;
 		Settings.bWaveform = false;
+		Settings.bSpotMeter = false;
 		bHDRBlocked = true;
 
 		static bool bLogged = false;
@@ -456,6 +560,26 @@ void FValueScopeViewExtension::ResolveView(const FSceneView& InView)
 		HDRBlocked.Remove(InView.State);
 	}
 
+	// Spot meter: the cursor if it's over this editor viewport's image, the frame center otherwise.
+	FSpotPoints SpotPoints;
+	if (bActive && Settings.bSpotMeter)
+	{
+		FVector2f Live(0.5f, 0.5f);
+		FVector2D Mouse;
+		const FIntRect Rect = InView.UnscaledViewRect;
+		if (GEditorCursorProvider && Rect.Width() > 0 && Rect.Height() > 0 && GEditorCursorProvider(InView.State, Mouse)
+			&& Mouse.X >= Rect.Min.X && Mouse.X < Rect.Max.X && Mouse.Y >= Rect.Min.Y && Mouse.Y < Rect.Max.Y)
+		{
+			Live = FVector2f((Mouse.X - Rect.Min.X) / Rect.Width(), (Mouse.Y - Rect.Min.Y) / Rect.Height());
+		}
+		SpotPoints.Add(Live);
+		CanvasSpots.Add(InView.State, SpotPoints);
+	}
+	else
+	{
+		CanvasSpots.Remove(InView.State);
+	}
+
 	if (bActive && Settings.IsActive())
 	{
 		CanvasSettings.Add(InView.State, Settings);
@@ -469,7 +593,7 @@ void FValueScopeViewExtension::ResolveView(const FSceneView& InView)
 	if (bActive && Settings.IsActive())
 	{
 		// HighResShot sets this while it draws its frame, and BeginRenderViewFamily runs inside that draw.
-		Pending.Add(InView.State, FPendingView{ Settings, GIsHighResScreenshot });
+		Pending.Add(InView.State, FPendingView{ Settings, GIsHighResScreenshot, SpotPoints });
 	}
 	else
 	{
@@ -495,11 +619,11 @@ void FValueScopeViewExtension::SubscribeToPostProcessingPass(EPostProcessingPass
 	}
 
 	InOutPassCallbacks.Add(FAfterPassCallbackDelegate::CreateRaw(
-		this, &FValueScopeViewExtension::AfterTonemap_RenderThread, PendingView.Settings, PendingView.bHighResShot));
+		this, &FValueScopeViewExtension::AfterTonemap_RenderThread, PendingView.Settings, PendingView.bHighResShot, PendingView.SpotPoints));
 }
 
 FScreenPassTexture FValueScopeViewExtension::AfterTonemap_RenderThread(FRDGBuilder& GraphBuilder,
-	const FSceneView& View, const FPostProcessMaterialInputs& Inputs, FValueScopeSettings Settings, bool bHighResShot)
+	const FSceneView& View, const FPostProcessMaterialInputs& Inputs, FValueScopeSettings Settings, bool bHighResShot, FSpotPoints SpotPoints)
 {
 	const FScreenPassTexture SceneColor = FScreenPassTexture::CopyFromSlice(
 		GraphBuilder, Inputs.GetInput(EPostProcessMaterialInput::SceneColor));
@@ -535,6 +659,11 @@ FScreenPassTexture FValueScopeViewExtension::AfterTonemap_RenderThread(FRDGBuild
 			GetPixelFormatString(Output.Texture->Desc.Format),
 			Inputs.OverrideOutput.IsValid() ? TEXT("ours is the last pass") : TEXT("other passes follow ours"));
 		HistogramBuffer = AddHistogramPass(GraphBuilder, View, SceneColor, bHighResShot, Source);
+	}
+
+	if (Settings.bSpotMeter && !SpotPoints.IsEmpty())
+	{
+		AddSpotMeterPass(GraphBuilder, View, SceneColor, SpotPoints);
 	}
 
 	const FScreenPassTextureViewport InputViewport(SceneColor);
@@ -707,6 +836,77 @@ FRDGBufferRef FValueScopeViewExtension::AddHistogramPass(FRDGBuilder& GraphBuild
 	}
 
 	return HistogramBuffer;
+}
+
+void FValueScopeViewExtension::AddSpotMeterPass(FRDGBuilder& GraphBuilder, const FSceneView& View, const FScreenPassTexture& SceneColor, const FSpotPoints& Points)
+{
+	constexpr int32 MaxPoints = FValueScopeSpotMeterCS::MaxPoints;
+	constexpr uint32 NumBytes = MaxPoints * 2 * sizeof(uint32);
+	const int32 NumPoints = FMath::Min(Points.Num(), MaxPoints);
+
+	FRDGBufferRef SpotBuffer = GraphBuilder.CreateBuffer(
+		FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), MaxPoints * 2), TEXT("ValueScope.SpotMeter"));
+	FRDGBufferUAVRef SpotUAV = GraphBuilder.CreateUAV(SpotBuffer, PF_R32_UINT);
+	AddClearUAVPass(GraphBuilder, SpotUAV, 0u);
+
+	// Box half size in measured pixels: 2 per 540 px of view height, so 9 x 9 at 1080p.
+	const FIntPoint InputSize = SceneColor.ViewRect.Size();
+	const int32 HalfSize = 2 * FMath::Max(1, FMath::RoundToInt32(InputSize.Y / 540.0f));
+
+	FValueScopeSpotMeterCS::FParameters* Params = GraphBuilder.AllocParameters<FValueScopeSpotMeterCS::FParameters>();
+	Params->Input = GetScreenPassTextureViewportParameters(FScreenPassTextureViewport(SceneColor));
+	Params->InputTexture = SceneColor.Texture;
+	for (int32 Index = 0; Index < NumPoints; ++Index)
+	{
+		Params->SpotPoints[Index] = FVector4f(Points[Index].X, Points[Index].Y, 0.0f, 0.0f);
+	}
+	Params->SpotHalfSize = HalfSize;
+	Params->SpotOut = SpotUAV;
+
+	FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("ValueScope SpotMeter %d", NumPoints),
+		TShaderMapRef<FValueScopeSpotMeterCS>(GetGlobalShaderMap(View.GetFeatureLevel())), Params, FIntVector(NumPoints, 1, 1));
+
+	FSpotReadbacks& Ring = SpotReadbacks.FindOrAdd(View.State);
+
+	// Publish copies that have reached the CPU, oldest first, so the newest wins.
+	for (int32 i = 0; i < NumReadbackSlots; ++i)
+	{
+		const int32 Index = (Ring.Next + i) % NumReadbackSlots;
+		if (Ring.bPending[Index] && Ring.Readback[Index]->IsReady())
+		{
+			const uint32* Data = static_cast<const uint32*>(Ring.Readback[Index]->Lock(NumBytes));
+			TArray<int32> Levels;
+			for (int32 PointIndex = 0; PointIndex < Ring.NumPoints[Index]; ++PointIndex)
+			{
+				const uint32 Sum = Data[PointIndex * 2];
+				const uint32 Count = Data[PointIndex * 2 + 1];
+				Levels.Add(Count > 0 ? int32((Sum + Count / 2) / Count) : -1); // Rounded average level.
+			}
+			Ring.Readback[Index]->Unlock();
+			Ring.bPending[Index] = false;
+
+			FScopeLock Lock(&LatestLock);
+			LatestSpot.Add(View.State, MoveTemp(Levels));
+		}
+	}
+
+	// Queue this frame's copy in a free slot, or skip it if all are in flight.
+	for (int32 i = 0; i < NumReadbackSlots; ++i)
+	{
+		const int32 Index = (Ring.Next + i) % NumReadbackSlots;
+		if (!Ring.bPending[Index])
+		{
+			if (!Ring.Readback[Index])
+			{
+				Ring.Readback[Index] = MakeUnique<FRHIGPUBufferReadback>(TEXT("ValueScope.SpotMeterReadback"));
+			}
+			AddEnqueueCopyPass(GraphBuilder, Ring.Readback[Index].Get(), SpotBuffer, NumBytes);
+			Ring.NumPoints[Index] = NumPoints;
+			Ring.bPending[Index] = true;
+			Ring.Next = (Index + 1) % NumReadbackSlots;
+			break;
+		}
+	}
 }
 
 void FValueScopeViewExtension::DumpHistograms()

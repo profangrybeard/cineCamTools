@@ -49,7 +49,7 @@ namespace
 		{
 			What = StaticEnum<EValueScopeMode>()->GetDisplayNameTextByValue(static_cast<int64>(S.Mode));
 		}
-		else if (S.bClipZebras || S.bThirdsGuide || S.bHistogram || S.bClipPercentages || S.bWaveform)
+		else if (S.bClipZebras || S.bThirdsGuide || S.bHistogram || S.bClipPercentages || S.bWaveform || S.bSpotMeter)
 		{
 			What = LOCTEXT("LabelOverlays", "Overlays");
 		}
@@ -145,6 +145,8 @@ namespace
 			LOCTEXT("ClipPercentTip", "Share of the frame crushed and blown, under the histogram."), &FValueScopeSettings::bClipPercentages);
 		AddOverlayEntry(Overlays, "Waveform", LOCTEXT("Waveform", "Waveform"),
 			LOCTEXT("WaveformTip", "Luma waveform, top left. Shows where in the frame each value sits."), &FValueScopeSettings::bWaveform);
+		AddOverlayEntry(Overlays, "SpotMeter", LOCTEXT("SpotMeter", "Spot Meter"),
+			LOCTEXT("SpotMeterTip", "Reads the value under the cursor: level 0 to 255 and zone 0 to X."), &FValueScopeSettings::bSpotMeter);
 
 		FToolMenuSection& More = Menu->AddSection("More");
 		More.AddMenuEntry("MoreSettings", LOCTEXT("MoreSettings", "More Settings..."),
@@ -158,13 +160,13 @@ namespace
 			})));
 	}
 
-	// True if State belongs to a level editor viewport. Material editors, thumbnails,
+	// The level editor viewport that owns State, or null. Material editors, thumbnails,
 	// asset previews and PIE all have view states of their own, so they never match.
-	bool IsLevelViewportState(const FSceneViewStateInterface* State)
+	FLevelEditorViewportClient* FindLevelViewportClient(const FSceneViewStateInterface* State)
 	{
-		if (!GEditor)
+		if (!GEditor || !State)
 		{
-			return false;
+			return nullptr;
 		}
 		for (FLevelEditorViewportClient* Client : GEditor->GetLevelViewportClients())
 		{
@@ -174,17 +176,17 @@ namespace
 			}
 			if (Client->ViewState.GetReference() == State)
 			{
-				return true;
+				return Client;
 			}
 			for (FSceneViewStateReference& Stereo : Client->StereoViewStates)
 			{
 				if (Stereo.GetReference() == State)
 				{
-					return true;
+					return Client;
 				}
 			}
 		}
-		return false;
+		return nullptr;
 	}
 }
 
@@ -193,11 +195,31 @@ void ValueScopeToolbar::Register(void* Owner)
 	ValueScope::SetEditorViewportResolver([](const FSceneViewStateInterface* State, FValueScopeSettings& OutSettings)
 	{
 		const UValueScopeEditorSettings& S = Current();
-		if (!S.bEnabled || !IsLevelViewportState(State))
+		if (!S.bEnabled || !FindLevelViewportClient(State))
 		{
 			return false;
 		}
 		OutSettings = S.Settings;
+		return true;
+	});
+
+	// The spot meter follows the mouse while it's over a level viewport.
+	ValueScope::SetEditorCursorProvider([](const FSceneViewStateInterface* State, FVector2D& OutViewportPixel)
+	{
+		const FLevelEditorViewportClient* Client = FindLevelViewportClient(State);
+		FViewport* Viewport = Client ? Client->Viewport : nullptr;
+		if (!Viewport)
+		{
+			return false;
+		}
+		FIntPoint Mouse;
+		Viewport->GetMousePos(Mouse);
+		const FIntPoint Size = Viewport->GetSizeXY();
+		if (Mouse.X < 0 || Mouse.Y < 0 || Mouse.X >= Size.X || Mouse.Y >= Size.Y)
+		{
+			return false;
+		}
+		OutViewportPixel = FVector2D(Mouse);
 		return true;
 	});
 
@@ -228,6 +250,7 @@ void ValueScopeToolbar::Register(void* Owner)
 void ValueScopeToolbar::Unregister(void* Owner)
 {
 	ValueScope::SetEditorViewportResolver({});
+	ValueScope::SetEditorCursorProvider({});
 	if (UObjectInitialized())
 	{
 		UToolMenus::UnRegisterStartupCallback(StartupHandle);

@@ -12,6 +12,9 @@ class FSceneViewStateInterface;
 
 class FValueScopeViewExtension : public FSceneViewExtensionBase
 {
+	// A few copies in flight per view, since each takes 2 to 3 frames to reach the CPU.
+	static constexpr int32 NumReadbackSlots = 4;
+
 public:
 	FValueScopeViewExtension(const FAutoRegister& AutoRegister);
 	virtual ~FValueScopeViewExtension();
@@ -40,8 +43,28 @@ private:
 	// Game thread only. Each view's resolved settings, for the canvas text.
 	TMap<const FSceneViewStateInterface*, FValueScopeSettings> CanvasSettings;
 
+	// Spot meter points of one view, in view UV (0 to 1). Index 0 is the live point (cursor or center).
+	using FSpotPoints = TArray<FVector2f, TInlineAllocator<5>>;
+
+	// Game thread only. Where each view's meter boxes are, for the canvas.
+	TMap<const FSceneViewStateInterface*, FSpotPoints> CanvasSpots;
+	void DrawSpotMeter(class UCanvas* Canvas);
+
 	FScreenPassTexture AfterTonemap_RenderThread(FRDGBuilder& GraphBuilder, const FSceneView& View,
-		const FPostProcessMaterialInputs& Inputs, FValueScopeSettings Settings, bool bHighResShot);
+		const FPostProcessMaterialInputs& Inputs, FValueScopeSettings Settings, bool bHighResShot, FSpotPoints SpotPoints);
+
+	// Render thread. Averages LumaLevel() in a box at each point and queues the result back to the CPU.
+	void AddSpotMeterPass(FRDGBuilder& GraphBuilder, const FSceneView& View, const FScreenPassTexture& SceneColor, const FSpotPoints& Points);
+
+	struct FSpotReadbacks
+	{
+		TUniquePtr<class FRHIGPUBufferReadback> Readback[NumReadbackSlots];
+		int32 NumPoints[NumReadbackSlots] = {};
+		bool bPending[NumReadbackSlots] = {};
+		int32 Next = 0;
+	};
+	TMap<const FSceneViewStateInterface*, FSpotReadbacks> SpotReadbacks; // Render thread only.
+	TMap<const FSceneViewStateInterface*, TArray<int32>> LatestSpot;     // Levels per point, under LatestLock.
 
 	// Game thread. Resolves one view's settings (component, then cvars) into Pending and CanvasSettings.
 	void ResolveView(const FSceneView& InView);
@@ -53,6 +76,7 @@ private:
 	{
 		FValueScopeSettings Settings;
 		bool bHighResShot = false; // This frame is a HighResShot capture.
+		FSpotPoints SpotPoints;    // Empty unless the spot meter is on.
 	};
 	FCriticalSection PendingLock;
 	TMap<const FSceneViewStateInterface*, FPendingView> Pending;
@@ -65,8 +89,6 @@ private:
 	// Render thread. Builds this frame's histogram, queues its copy back to the CPU, and returns it for the panel.
 	FRDGBufferRef AddHistogramPass(FRDGBuilder& GraphBuilder, const FSceneView& View, const FScreenPassTexture& SceneColor, bool bHighResShot, const FString& Source);
 
-	// A few copies in flight per view, since each takes 2 to 3 frames to reach the CPU.
-	static constexpr int32 NumReadbackSlots = 4;
 	struct FReadbackSlot
 	{
 		TUniquePtr<class FRHIGPUBufferReadback> Readback;

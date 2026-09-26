@@ -100,6 +100,41 @@ void WaveformCS(uint3 DispatchThreadId : SV_DispatchThreadID)
 	}
 }
 
+#ifndef SPOT_MAX_POINTS
+#define SPOT_MAX_POINTS 5
+#endif
+
+float4 SpotPoints[SPOT_MAX_POINTS]; // xy = position in the view, 0 to 1
+int SpotHalfSize;                   // box is 2 * this + 1 pixels wide
+RWBuffer<uint> SpotOut;             // Point * 2 = sum of levels, Point * 2 + 1 = pixels counted
+
+// Spot meter. One group per point, one thread walks the box (at most 17 x 17 at 4K).
+// Same LumaLevel() as the histogram, so the reading matches it and value_report.py.
+[numthreads(1, 1, 1)]
+void SpotMeterCS(uint3 GroupId : SV_GroupID)
+{
+	const uint PointIndex = GroupId.x;
+	const int2 Size = int2(Input_ViewportSize);
+	const int2 Center = int2(floor(saturate(SpotPoints[PointIndex].xy) * float2(Size)));
+
+	uint Sum = 0;
+	uint Count = 0;
+	for (int Y = -SpotHalfSize; Y <= SpotHalfSize; ++Y)
+	{
+		for (int X = -SpotHalfSize; X <= SpotHalfSize; ++X)
+		{
+			const int2 P = Center + int2(X, Y);
+			if (all(P >= 0) && all(P < Size))
+			{
+				Sum += LumaLevel(InputTexture.Load(int3(int2(Input_ViewportMin) + P, 0)).rgb);
+				++Count;
+			}
+		}
+	}
+	SpotOut[PointIndex * 2] = Sum;
+	SpotOut[PointIndex * 2 + 1] = Count;
+}
+
 Buffer<uint> HistogramIn;
 Buffer<uint> HistogramMax;
 RWBuffer<uint> HistogramMaxOut;
