@@ -2,9 +2,47 @@
 
 Unreal Engine 5.8 plugin of camera tools for teaching lighting, value and composition at SCAD ITGM/GAME. First tool is **Value Scope**: overlays drawn on the final, post-tonemap image so students judge value in engine the way they'd judge it with a Photoshop histogram.
 
-## Current goal: roadmap, step 3 (waiting for Tim)
+## Where we left off (2026-09-25, end of session)
 
-Plumbing, step 1 and step 2 are done (all checklists below checked). Do not start step 3 until Tim says go.
+- Last pushed commit: `4d38342` (step 2.4 waveform). Step 2 is complete and pushed.
+- Step 3.1 (Sequencer keying) is written, builds clean, and `package_plugin.bat` passes, but it is NOT tested in the editor. It's pushed as a WIP commit right after `4d38342` ("WIP step 3.1"): `ValueScopeComponent.h` (all properties `Interp`, class comment), `README.md` (keying paragraph), this file.
+- Next action: Tim runs the 3.1 editor checks (see "Step 3 checklist"). If they pass, tick them and commit "Value Scope step 3.1: Sequencer keying" (push when Tim says). Then 3.2 presets.
+
+## Working with Tim
+
+- Tim teaches at SCAD and tests every step himself in the editor. He says "go" before any new step; discuss, diagram and agree on each step's design first.
+- Commit and push only when he asks ("commit it", "push it", "commit and push"). End commit messages with the Co-Authored-By line.
+- The build refuses to run while the editor is open (Live Coding). Check first (`Get-Process UnrealEditor`); if it's running, ask Tim to close it, and he replies "editor closed, build it". Shader-only (`.usf`) changes don't need a rebuild: `recompileshaders changed` in the editor console.
+- Run `package_plugin.bat` in the background after each build; the monolithic game build catches things the editor build hides.
+- Keep answers short and plain. No em-dashes anywhere students read.
+
+## How we verify
+
+- HighResShot pairs: `HighResShot 1` writes `C:\_projects\pluginWorkbench\Saved\Screenshots\WindowsEditor\HighresScreenshot000NN.png`. Tim reports the number; compare against `value_report.py` (notan, false color, clip %, `--compare-histogram`).
+- `r.ValueScope.DumpHistogram` writes `Saved/ValueScope/*.csv`, including `_highresshot.csv` for the HighResShot frame itself. Byte-identical to `value_report.py --histogram-csv` of that PNG in Game View.
+- Read the editor log directly: `C:\_projects\pluginWorkbench\Saved\Logs\pluginWorkbench.log` (commands show as `Cmd:`; ours log as `LogValueScope`).
+- Panels bake into HighResShot, so a shot shows exactly what was drawn. Canvas text (notice, clip %) does not.
+
+## Gotchas learned
+
+- Tim's window screenshot tool makes canvas text vanish (focus change). Not a bug; ask him to read numbers off the screen instead.
+- Exact histogram comparisons need Game View (G) with nothing selected: in editor viewports with icons, the editor primitive composite runs after our hook and changes pixels (dump line says "other passes follow ours").
+- Two live frames of the same camera differ by Lumen and temporal noise (about 0.2 levels), so only same-frame comparisons can be exact.
+- `r.ValueScope.Mode 0` turns everything off, the component included. When "the component does nothing", check the log for a leftover cvar.
+- Clipping only happens at level 250 and up (or 5 and down); a bright-looking frame often isn't clipped because the tonemapper rolls highlights off. Zone X in false color starts at 232.
+- CineCameraActor hides Auto Activate for Player; use Level Blueprint BeginPlay > Get Player Controller > Set View Target with Blend.
+- The shell here mangles backslashes and quotes in heredocs. For multi-line code edits, write a Python patch script to the scratchpad with the Write tool and run it, or use the Edit tool.
+
+## Current goal: roadmap, step 3
+
+Plumbing, step 1 and step 2 are done. Tim said go on step 3. Work "Step 3 checklist" in order: 3.1 Sequencer keying, 3.2 presets, 3.3 editor toolbar.
+
+Step 3 decisions (Tim, 2026-09-25):
+
+- Who decides what a view shows, first match wins: console cvars (yellow notice), then the Value Scope component on the view target (fed by Sequencer keys and applied presets), then the editor toolbar (level editor viewports only; never material editor, thumbnails or previews).
+- Piloting a camera that has a component: the component wins, so it matches PIE. The toolbar covers the free viewport.
+- Presets are copied into the component when chosen (editable and keyable after), not linked live. Built-in presets live in code (Notan, Value Check, Exposure, Composition); teachers can make their own as `UValueScopePreset` data assets.
+- Toolbar: its own settings layer (not the cvars), one setting shared by all level viewports, remembered between sessions. Lives in a new editor-only module `CineCamToolsEditor`, extending `LevelEditor.ViewportToolbar`.
 
 Step 2 decisions (Tim, 2026-09-25):
 
@@ -30,19 +68,26 @@ The workbench is only a host. Never edit plugin files through the workbench path
 
 ```
 CineCamTools.uplugin
-Source/CineCamToolsShaders/   PostConfigInit. Shader dir mapping + FValueScopePS.
+Source/CineCamToolsShaders/   PostConfigInit. Shader dir mapping; FValueScopePS (permutations
+                              VALUE_SCOPE_HISTOGRAM, VALUE_SCOPE_WAVEFORM), FValueScopeHistogramCS,
+                              FValueScopeHistogramMaxCS, FValueScopeWaveformCS.
 Source/CineCamTools/          Default. UValueScopeComponent, FValueScopeViewExtension, module.
-Shaders/Private/ValueScope.usf
+Shaders/Private/ValueScope.usf  All shader entry points: MainPS, HistogramCS, HistogramMaxCS, WaveformCS.
 Tools/value_report.py         CPU reference for the shader math, runs on a PNG.
 Scripts/                      link_workbench.bat, build_workbench.bat, package_plugin.bat
+Config/FilterPlugin.ini       Stock template from BuildPlugin, nothing listed yet.
 ```
 
 ## How it works
 
-1. `UValueScopeComponent` sits on a CineCameraActor and holds `FValueScopeSettings`.
-2. `FValueScopeViewExtension::SetupView` (game thread) reads the component off `InView.ViewActor`, applies the `r.ValueScope.Mode` / `.Zebras` / `.Thirds` cvar overrides, and stores settings in `Pending` keyed by the view's `State` pointer.
+1. `UValueScopeComponent` sits on a CineCameraActor and holds `FValueScopeSettings` (all `Interp`, so Sequencer can key them).
+2. `FValueScopeViewExtension::SetupView` (game thread) reads the component off `InView.ViewActor`, applies the `r.ValueScope.*` cvar overrides, and stores settings in `Pending` (plus a HighResShot flag from `GIsHighResScreenshot`) keyed by the view's `State` pointer. It also keeps a game-thread copy in `CanvasSettings` for the canvas text.
 3. `SubscribeToPostProcessingPass` (render thread) takes those settings for `EPostProcessingPass::Tonemap` and adds `AfterTonemap_RenderThread`.
-4. That callback draws `FValueScopePS` full screen. If `Inputs.OverrideOutput` is valid it must write there, because it's the backbuffer when Tonemap is the last pass.
+4. That callback, in order: `HistogramCS` (if Histogram or Clip Percentages; queues a GPU readback into a 4-slot ring per view), `HistogramMaxCS` (if the histogram panel is on), `WaveformCS` (if Waveform), then `FValueScopePS` full screen, which draws the mode, zebras, thirds, waveform panel, histogram panel and plumbing frame. If `Inputs.OverrideOutput` is valid it must write there, because it's the backbuffer when Tonemap is the last pass.
+5. Canvas text goes through `UDebugDrawService` ("Rendering" show flag, so every editor and game viewport): the console override notice (bottom left) and the clip percentages (under the histogram panel, from the latest readback). Canvas units are pixels / DPI. Skipped during HighResShot.
+6. Cvar changes broadcast `FEditorSupportDelegates::RedrawAllViewports` so non-Realtime editor viewports repaint.
+
+Shared math: `LumaLevel()` in the shader is the one definition of a pixel's level 0 to 255: quantize to 8 bits, then (30R + 59G + 11B + 50) / 100. Histogram, waveform, zebras and clip percentages all use it; `value_report.py` uses the same formula.
 
 Modes: 0 off, 1 plumbing check (image untouched, 6px magenta frame on the view rect edges), 2 notan, 3 false color (11 zones, palette shared with `value_report.py`).
 
@@ -121,6 +166,19 @@ Full editor restart after building (new UPROPERTYs and shader params, Live Codin
 - [x] All panels together (Histogram, Clip Percent, Waveform, Mode 3, zebras, thirds): nothing overlaps badly.
 - [x] Component: Waveform on the CineCamera's Value Scope, PIE through it: panel shows.
 - [x] `package_plugin.bat` passes.
+
+## Step 3 checklist
+
+3.1 Sequencer keying (every component setting and Enabled are `Interp`, like the CineCamera's lens settings):
+
+- [ ] Build clean, editor opens.
+- [ ] Level Sequence with the CineCameraActor added: on its ValueScope component, + Track lists the Value Scope settings (Enabled, Mode, Clip Zebras, Histogram, and the rest).
+- [ ] Key Mode Notan at frame 0 and False Color at frame 60. Scrub while piloting the camera (or through a Camera Cut): the view switches at 60.
+- [ ] Key a bool (Clip Zebras on at 30) and a float (Shadow Threshold 0.25 to 0.5 over 0 to 60): both follow the timeline.
+- [ ] Movie Render Queue, a frame each side of 60: the renders show the switch.
+- [x] `package_plugin.bat` passes.
+
+3.2 presets, 3.3 toolbar: checklists written when each starts.
 
 ## Rules that should not drift
 

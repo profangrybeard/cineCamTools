@@ -40,6 +40,8 @@ Overlays (turn on with any mode, including Off):
 
 Turn it off before final renders. Movie Render Queue will bake it in.
 
+Every Value Scope setting can be keyed in Sequencer, the same way you key the camera's focal length: add the camera to a Level Sequence, then + Track on its ValueScope component. Use it to switch views per shot, or key Enabled off before a final render.
+
 ## Check a frame outside the engine
 
 ```
