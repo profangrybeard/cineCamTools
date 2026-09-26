@@ -18,8 +18,7 @@ Overlays (turn on with any mode, including Off):
 - **Thirds guide.** Rule of thirds lines for checking composition.
 - **Histogram.** Top right. The same luma histogram Photoshop shows in its Histogram panel (Luminosity), measured from the frame before any overlay. Black on the left, white on the right. Pure black (0) and pure white (255) show in blue and red, with a colored strip at that edge whenever anything clips. Their height doesn't set the scale, so a clipped spike can't flatten the rest.
 - **Clip percentages.** Text under the histogram: how much of the frame is crushed to black and blown to white, counted at the same levels the zebras use. "under 0.1%" still means some clipping; only "0%" means none. It's drawn as screen text, so it never shows up in screenshots.
-
-A waveform comes later.
+- **Waveform.** Top left. Each column of the frame, left to right, with its values from dark (bottom) to bright (top); brighter spots mean more pixels at that value. Shows *where* in the frame the darks and lights sit, which the histogram can't. Clipped values trace in blue and red, like the zebras.
 
 ## Use
 
@@ -33,10 +32,11 @@ A waveform comes later.
    - `r.ValueScope.Thirds 1` thirds guide, `0` to turn off
    - `r.ValueScope.Histogram 1` histogram, `0` to turn off
    - `r.ValueScope.ClipPercent 1` clip percentages, `0` to turn off
+   - `r.ValueScope.Waveform 1` waveform, `0` to turn off
    - `r.ValueScope.Mode 0` everything off
    - `-1` on any of these goes back to per-camera
 
-   Console settings win over the camera's settings. While any are set, a yellow line on screen says which. If the camera's settings seem to do nothing, check for that line. `r.ValueScope.OverrideMessage 0` hides it, and so does `DisableAllScreenMessages`.
+   Console settings win over the camera's settings. While any are set, a yellow line at the bottom left of the screen says which. If the camera's settings seem to do nothing, check for that line. `r.ValueScope.OverrideMessage 0` hides it, and so does `DisableAllScreenMessages`.
 
 Turn it off before final renders. Movie Render Queue will bake it in.
 

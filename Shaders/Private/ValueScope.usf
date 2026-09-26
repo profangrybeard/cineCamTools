@@ -80,6 +80,26 @@ void HistogramCS(uint3 DispatchThreadId : SV_DispatchThreadID, uint GroupIndex :
 	}
 }
 
+#ifndef WAVEFORM_COLUMNS
+#define WAVEFORM_COLUMNS 512
+#endif
+
+RWBuffer<uint> WaveformOut;
+
+// Luma waveform. Column across the view, level up; one count per pixel.
+[numthreads(THREADGROUP_SIZE, THREADGROUP_SIZE, 1)]
+void WaveformCS(uint3 DispatchThreadId : SV_DispatchThreadID)
+{
+	const uint2 Size = uint2(Input_ViewportSize);
+	if (all(DispatchThreadId.xy < Size))
+	{
+		const int2 Pixel = int2(Input_ViewportMin) + int2(DispatchThreadId.xy);
+		const uint Level = LumaLevel(InputTexture.Load(int3(Pixel, 0)).rgb);
+		const uint Column = min(WAVEFORM_COLUMNS - 1u, DispatchThreadId.x * WAVEFORM_COLUMNS / Size.x);
+		InterlockedAdd(WaveformOut[Column * 256u + Level], 1u);
+	}
+}
+
 Buffer<uint> HistogramIn;
 Buffer<uint> HistogramMax;
 RWBuffer<uint> HistogramMaxOut;
@@ -113,6 +133,14 @@ void HistogramMaxCS(uint GroupIndex : SV_GroupIndex)
 #endif
 
 float4 HistogramRect; // panel min x, min y, width, height, in view pixels
+
+#ifndef VALUE_SCOPE_WAVEFORM
+#define VALUE_SCOPE_WAVEFORM 0
+#endif
+
+Buffer<uint> WaveformIn;
+float4 WaveformRect;    // panel min x, min y, width, height, in view pixels
+float WaveformRefCount; // a cell with this many pixels draws at 63% brightness
 
 void MainPS(float4 SvPosition : SV_POSITION, out float4 OutColor : SV_Target0)
 {
@@ -165,6 +193,44 @@ void MainPS(float4 SvPosition : SV_POSITION, out float4 OutColor : SV_Target0)
 			Result = lerp(Result, Line, 0.7);
 		}
 	}
+
+#if VALUE_SCOPE_WAVEFORM
+	{
+		// Waveform panel. Image columns left to right, levels 0 (bottom) to 255 (top).
+		const float2 P = (PixelPos - WaveformRect.xy) / WaveformRect.zw;
+		if (all(P >= 0.0) && all(P < 1.0))
+		{
+			Result *= 0.3; // Dim backing, like the histogram.
+
+			const uint Column = min(WAVEFORM_COLUMNS - 1u, (uint)(P.x * WAVEFORM_COLUMNS));
+			const uint Level = min(255u, (uint)((1.0 - P.y) * 256.0));
+
+			// Faint guides at levels 64, 128 and 192.
+			const float Quarter = (1.0 - P.y) * 4.0;
+			if (abs(Quarter - round(Quarter)) * WaveformRect.w * 0.25 < 0.5 * Scale && Quarter > 0.5 && Quarter < 3.5)
+			{
+				Result = lerp(Result, 0.5, 0.35);
+			}
+
+			const uint Count = WaveformIn[Column * 256u + Level];
+			if (Count > 0)
+			{
+				// Soft curve so dense areas don't wash out; any pixel at all stays visible.
+				const float Brightness = max(0.15, 1.0 - exp(-Count / WaveformRefCount));
+				float3 Trace = float3(0.85, 0.85, 0.85);
+				if (Level <= (uint)round(ClipLevels.x * 255.0))
+				{
+					Trace = float3(0.0, 0.4, 1.0);
+				}
+				else if (Level >= (uint)round(ClipLevels.y * 255.0))
+				{
+					Trace = float3(1.0, 0.0, 0.0);
+				}
+				Result = lerp(Result, Trace, Brightness);
+			}
+		}
+	}
+#endif
 
 #if VALUE_SCOPE_HISTOGRAM
 	{

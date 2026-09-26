@@ -7,7 +7,14 @@
 
 IMPLEMENT_GLOBAL_SHADER(FValueScopePS, "/Plugin/CineCamTools/Private/ValueScope.usf", "MainPS", SF_Pixel);
 IMPLEMENT_GLOBAL_SHADER(FValueScopeHistogramCS, "/Plugin/CineCamTools/Private/ValueScope.usf", "HistogramCS", SF_Compute);
+IMPLEMENT_GLOBAL_SHADER(FValueScopeWaveformCS, "/Plugin/CineCamTools/Private/ValueScope.usf", "WaveformCS", SF_Compute);
 IMPLEMENT_GLOBAL_SHADER(FValueScopeHistogramMaxCS, "/Plugin/CineCamTools/Private/ValueScope.usf", "HistogramMaxCS", SF_Compute);
+
+void FValueScopePS::ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
+{
+	FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
+	OutEnvironment.SetDefine(TEXT("WAVEFORM_COLUMNS"), FValueScopeWaveformCS::NumColumns);
+}
 
 void FCineCamToolsShadersModule::StartupModule()
 {

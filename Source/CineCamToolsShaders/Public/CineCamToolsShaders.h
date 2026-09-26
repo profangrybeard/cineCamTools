@@ -19,9 +19,10 @@ public:
 	DECLARE_GLOBAL_SHADER(FValueScopePS);
 	SHADER_USE_PARAMETER_STRUCT(FValueScopePS, FGlobalShader);
 
-	// Histogram panel on or off. Off compiles the panel out, so its buffers needn't be bound.
+	// Histogram and waveform panels on or off. Off compiles a panel out, so its buffers needn't be bound.
 	class FHistogramDim : SHADER_PERMUTATION_BOOL("VALUE_SCOPE_HISTOGRAM");
-	using FPermutationDomain = TShaderPermutationDomain<FHistogramDim>;
+	class FWaveformDim : SHADER_PERMUTATION_BOOL("VALUE_SCOPE_WAVEFORM");
+	using FPermutationDomain = TShaderPermutationDomain<FHistogramDim, FWaveformDim>;
 
 	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
 		SHADER_PARAMETER_STRUCT(FScreenPassTextureViewportParameters, Input)
@@ -36,6 +37,9 @@ public:
 		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<uint>, HistogramIn)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<uint>, HistogramMax)
 		SHADER_PARAMETER(FVector4f, HistogramRect)   // panel min x, min y, width, height, in view pixels
+		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<uint>, WaveformIn)
+		SHADER_PARAMETER(FVector4f, WaveformRect)    // panel min x, min y, width, height, in view pixels
+		SHADER_PARAMETER(float, WaveformRefCount)    // a cell with this many pixels draws at 63% brightness
 		RENDER_TARGET_BINDING_SLOTS()
 	END_SHADER_PARAMETER_STRUCT()
 
@@ -43,6 +47,8 @@ public:
 	{
 		return IsFeatureLevelSupported(Parameters.Platform, ERHIFeatureLevel::SM5);
 	}
+
+	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment);
 };
 
 // Luma histogram of the post-tonemap image, 256 bins (levels 0 to 255).
@@ -72,6 +78,37 @@ public:
 	{
 		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
 		OutEnvironment.SetDefine(TEXT("THREADGROUP_SIZE"), GroupSize);
+	}
+};
+
+// Luma waveform: image columns across, levels 0 to 255 up, each cell counts pixels.
+// Buffer layout is Column * 256 + Level.
+class CINECAMTOOLSSHADERS_API FValueScopeWaveformCS : public FGlobalShader
+{
+public:
+	DECLARE_GLOBAL_SHADER(FValueScopeWaveformCS);
+	SHADER_USE_PARAMETER_STRUCT(FValueScopeWaveformCS, FGlobalShader);
+
+	static constexpr int32 GroupSize = 16;
+	static constexpr int32 NumColumns = 512;
+	static constexpr int32 NumLevels = 256;
+
+	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
+		SHADER_PARAMETER_STRUCT(FScreenPassTextureViewportParameters, Input)
+		SHADER_PARAMETER_RDG_TEXTURE(Texture2D, InputTexture)
+		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<uint>, WaveformOut)
+	END_SHADER_PARAMETER_STRUCT()
+
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
+	{
+		return IsFeatureLevelSupported(Parameters.Platform, ERHIFeatureLevel::SM5);
+	}
+
+	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
+	{
+		FGlobalShader::ModifyCompilationEnvironment(Parameters, OutEnvironment);
+		OutEnvironment.SetDefine(TEXT("THREADGROUP_SIZE"), GroupSize);
+		OutEnvironment.SetDefine(TEXT("WAVEFORM_COLUMNS"), NumColumns);
 	}
 };
 

@@ -53,10 +53,14 @@ struct FValueScopeSettings
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Value Scope")
 	bool bClipPercentages = false;
 
+	/** Luma waveform, top left. Image columns left to right, dark at the bottom, bright at the top. Shows where in the frame each value sits. Works with any mode, including Off. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Value Scope")
+	bool bWaveform = false;
+
 	/** True if anything would be drawn or measured. */
 	bool IsActive() const
 	{
-		return Mode != EValueScopeMode::Off || bClipZebras || bThirdsGuide || bHistogram || bClipPercentages;
+		return Mode != EValueScopeMode::Off || bClipZebras || bThirdsGuide || bHistogram || bClipPercentages || bWaveform;
 	}
 };
 

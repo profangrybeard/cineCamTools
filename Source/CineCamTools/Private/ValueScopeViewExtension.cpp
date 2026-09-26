@@ -85,6 +85,15 @@ static TAutoConsoleVariable<int32> CVarValueScopeClipPercent(
 	FConsoleVariableDelegate::CreateStatic(&OnValueScopeCVarChanged),
 	ECVF_Default);
 
+static TAutoConsoleVariable<int32> CVarValueScopeWaveform(
+	TEXT("r.ValueScope.Waveform"),
+	-1,
+	TEXT("-1: use the Value Scope component (default)\n")
+	TEXT(" 0: force the waveform off\n")
+	TEXT(" 1: force the waveform on, on every view"),
+	FConsoleVariableDelegate::CreateStatic(&OnValueScopeCVarChanged),
+	ECVF_Default);
+
 static FAutoConsoleCommand CmdValueScopeDumpHistogram(
 	TEXT("r.ValueScope.DumpHistogram"),
 	TEXT("Writes the latest luma histogram of each view to Saved/ValueScope as CSV (level,count). The histogram must be on."),
@@ -147,6 +156,7 @@ void FValueScopeViewExtension::DrawOverrideNotice(UCanvas* Canvas)
 	const int32 ForcedThirds = CVarValueScopeThirds.GetValueOnGameThread();
 	const int32 ForcedHistogram = CVarValueScopeHistogram.GetValueOnGameThread();
 	const int32 ForcedClipPercent = CVarValueScopeClipPercent.GetValueOnGameThread();
+	const int32 ForcedWaveform = CVarValueScopeWaveform.GetValueOnGameThread();
 
 	TArray<FString> Parts;
 	if (ForcedMode == 0)
@@ -173,6 +183,10 @@ void FValueScopeViewExtension::DrawOverrideNotice(UCanvas* Canvas)
 	{
 		Parts.Add(FString::Printf(TEXT("ClipPercent %d"), ForcedClipPercent));
 	}
+	if (ForcedWaveform >= 0)
+	{
+		Parts.Add(FString::Printf(TEXT("Waveform %d"), ForcedWaveform));
+	}
 	if (Parts.Num() == 0)
 	{
 		return;
@@ -182,8 +196,10 @@ void FValueScopeViewExtension::DrawOverrideNotice(UCanvas* Canvas)
 		TEXT("Value Scope console override: %s. Set to -1 to use the camera's settings. Hide this: r.ValueScope.OverrideMessage 0"),
 		*FString::Join(Parts, TEXT(", ")));
 
-	// Top left, below the editor viewport toolbar. Canvas units already include the DPI scale.
-	FCanvasTextItem Text(FVector2D(20.0f, 50.0f), FText::FromString(Message), GEngine->GetSmallFont(), FLinearColor::Yellow);
+	// Bottom left, right of the editor's axis gizmo, so the waveform panel (top left) can't cover it.
+	// Canvas units are pixels divided by the DPI scale.
+	const float CanvasHeight = Canvas->ClipY / Canvas->Canvas->GetDPIScale();
+	FCanvasTextItem Text(FVector2D(100.0f, CanvasHeight - 30.0f), FText::FromString(Message), GEngine->GetSmallFont(), FLinearColor::Yellow);
 	Text.EnableShadow(FLinearColor::Black);
 	Canvas->DrawItem(Text);
 }
@@ -284,6 +300,7 @@ void FValueScopeViewExtension::SetupView(FSceneViewFamily& InViewFamily, FSceneV
 		Settings.bThirdsGuide = false;
 		Settings.bHistogram = false;
 		Settings.bClipPercentages = false;
+		Settings.bWaveform = false;
 	}
 
 	const int32 ForcedMode = CVarValueScopeMode.GetValueOnGameThread();
@@ -291,6 +308,7 @@ void FValueScopeViewExtension::SetupView(FSceneViewFamily& InViewFamily, FSceneV
 	const int32 ForcedThirds = CVarValueScopeThirds.GetValueOnGameThread();
 	const int32 ForcedHistogram = CVarValueScopeHistogram.GetValueOnGameThread();
 	const int32 ForcedClipPercent = CVarValueScopeClipPercent.GetValueOnGameThread();
+	const int32 ForcedWaveform = CVarValueScopeWaveform.GetValueOnGameThread();
 
 	if (ForcedMode == 0)
 	{
@@ -321,6 +339,11 @@ void FValueScopeViewExtension::SetupView(FSceneViewFamily& InViewFamily, FSceneV
 		if (ForcedClipPercent >= 0)
 		{
 			Settings.bClipPercentages = ForcedClipPercent != 0;
+			bActive = true;
+		}
+		if (ForcedWaveform >= 0)
+		{
+			Settings.bWaveform = ForcedWaveform != 0;
 			bActive = true;
 		}
 	}
@@ -456,8 +479,39 @@ FScreenPassTexture FValueScopeViewExtension::AfterTonemap_RenderThread(FRDGBuild
 		Params->HistogramRect = FVector4f(ViewSize.X - Side - Width, Top, Width, Height);
 	}
 
+	if (Settings.bWaveform)
+	{
+		FRDGBufferRef WaveformBuffer = GraphBuilder.CreateBuffer(
+			FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), FValueScopeWaveformCS::NumColumns * FValueScopeWaveformCS::NumLevels),
+			TEXT("ValueScope.Waveform"));
+		FRDGBufferUAVRef WaveformUAV = GraphBuilder.CreateUAV(WaveformBuffer, PF_R32_UINT);
+		AddClearUAVPass(GraphBuilder, WaveformUAV, 0u);
+
+		FValueScopeWaveformCS::FParameters* WaveParams = GraphBuilder.AllocParameters<FValueScopeWaveformCS::FParameters>();
+		WaveParams->Input = GetScreenPassTextureViewportParameters(InputViewport);
+		WaveParams->InputTexture = SceneColor.Texture;
+		WaveParams->WaveformOut = WaveformUAV;
+		FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("ValueScope Waveform"),
+			TShaderMapRef<FValueScopeWaveformCS>(ShaderMap), WaveParams,
+			FComputeShaderUtils::GetGroupCount(SceneColor.ViewRect.Size(), FValueScopeWaveformCS::GroupSize));
+
+		// Top left, mirroring the histogram panel.
+		const FIntPoint ViewSize = Output.ViewRect.Size();
+		const float Scale = FMath::Max(1.0f, FMath::RoundToFloat(ViewSize.Y / 540.0f));
+		const float Width = ViewSize.X * 0.30f;
+		const float Height = Width * 0.4f;
+		Params->WaveformIn = GraphBuilder.CreateSRV(WaveformBuffer, PF_R32_UINT);
+		Params->WaveformRect = FVector4f(16.0f * Scale, ViewSize.Y * 0.06f, Width, Height);
+
+		// A cell holding 1/64 of its column's pixels draws at 63% brightness.
+		const FIntPoint InputSize = SceneColor.ViewRect.Size();
+		const float PixelsPerColumn = float(InputSize.X) * float(InputSize.Y) / FValueScopeWaveformCS::NumColumns;
+		Params->WaveformRefCount = FMath::Max(1.0f, PixelsPerColumn / 64.0f);
+	}
+
 	FValueScopePS::FPermutationDomain Permutation;
 	Permutation.Set<FValueScopePS::FHistogramDim>(bHistogramPanel);
+	Permutation.Set<FValueScopePS::FWaveformDim>(Settings.bWaveform);
 	TShaderMapRef<FValueScopePS> PixelShader(ShaderMap, Permutation);
 
 	FPixelShaderUtils::AddFullscreenPass(

@@ -2,9 +2,9 @@
 
 Unreal Engine 5.8 plugin of camera tools for teaching lighting, value and composition at SCAD ITGM/GAME. First tool is **Value Scope**: overlays drawn on the final, post-tonemap image so students judge value in engine the way they'd judge it with a Photoshop histogram.
 
-## Current goal: roadmap, step 2
+## Current goal: roadmap, step 3 (waiting for Tim)
 
-Plumbing and step 1 are done. Tim said go on step 2. Work "Step 2 checklist" in order: readback plumbing (2.1) first, then histogram panel, clip text, waveform.
+Plumbing, step 1 and step 2 are done (all checklists below checked). Do not start step 3 until Tim says go.
 
 Step 2 decisions (Tim, 2026-09-25):
 
@@ -48,7 +48,7 @@ Modes: 0 off, 1 plumbing check (image untouched, 6px magenta frame on the view r
 
 Overlays, on top of any mode including Off: clip zebras (diagonal stripes, red at or above White Clip, blue at or below Black Clip, tested on the source luma) and the thirds guide. Stripe period and line width scale with view height (1x per 540 px).
 
-Cvars: `r.ValueScope.Mode` -1 component, 0 everything off, 1 to 3 force mode. `r.ValueScope.Zebras`, `r.ValueScope.Thirds`, `r.ValueScope.Histogram` and `r.ValueScope.ClipPercent` -1 component, 0 force off, 1 force on. `r.ValueScope.DumpHistogram` writes each view's latest histogram (from the GPU readback) to `Saved/ValueScope/*.csv`. With no component on the view target, only what a cvar forces is drawn. While any override is set, a yellow on-screen notice says so (`r.ValueScope.OverrideMessage 0` hides it, and so does `DisableAllScreenMessages`; it never shows in HighResShot).
+Cvars: `r.ValueScope.Mode` -1 component, 0 everything off, 1 to 3 force mode. `r.ValueScope.Zebras`, `r.ValueScope.Thirds`, `r.ValueScope.Histogram`, `r.ValueScope.ClipPercent` and `r.ValueScope.Waveform` -1 component, 0 force off, 1 force on. `r.ValueScope.DumpHistogram` writes each view's latest histogram (from the GPU readback) to `Saved/ValueScope/*.csv`. With no component on the view target, only what a cvar forces is drawn. While any override is set, a yellow on-screen notice says so (`r.ValueScope.OverrideMessage 0` hides it, and so does `DisableAllScreenMessages`; it never shows in HighResShot).
 
 ## Build
 
@@ -111,7 +111,16 @@ Full editor restart after building (new UPROPERTYs and shader params, Live Codin
 - [x] Component: Clip Percentages on the CineCamera's Value Scope, PIE through it: text shows. Clip levels are editable when Zebras or Clip Percentages is on.
 - [x] `package_plugin.bat` passes.
 
-2.4 waveform: checklist written when it starts.
+2.4 waveform (GPU only, `WaveformCS` counts pixels into 512 columns x 256 levels with `LumaLevel()`; overlay pass draws it top left; `VALUE_SCOPE_WAVEFORM` permutation; override notice moved to bottom left):
+
+- [x] Build clean, editor opens, no `ValueScope.usf` errors.
+- [x] `r.ValueScope.Waveform 1`: panel top left, same size as the histogram, clear of the toolbar. Dark bottom, bright top, faint lines at 64 / 128 / 192. Screen Percentage 50: same place and size.
+- [x] Reads the frame: sky across the top of the frame shows as a band high in the waveform's left-to-right span where the sky is; the floor lower. Pan the camera and the trace follows.
+- [x] Clipped levels trace in blue (bottom) and red (top) when exposure is pushed, matching the zebras.
+- [x] Override notice now bottom left, right of the axis gizmo, not under the waveform.
+- [x] All panels together (Histogram, Clip Percent, Waveform, Mode 3, zebras, thirds): nothing overlaps badly.
+- [x] Component: Waveform on the CineCamera's Value Scope, PIE through it: panel shows.
+- [x] `package_plugin.bat` passes.
 
 ## Rules that should not drift
 
@@ -140,6 +149,6 @@ Resolved against the 5.8.3 install (CL 58210709):
 
 Done, step 1: false color zones, clip zebras, thirds guide, console override notice.
 
-Step 2 (next): luma histogram (compute + readback), on-screen clip percentages, waveform. First GPU readback, so it gets its own plumbing check.
+Done, step 2: GPU histogram with readback (matches Photoshop Luminosity exactly), histogram panel, clip percentages, waveform.
 
-Later: presets data asset, Sequencer keying, editor toolbar toggle.
+Next (step 3, not planned yet): presets data asset, Sequencer keying, editor toolbar toggle.
