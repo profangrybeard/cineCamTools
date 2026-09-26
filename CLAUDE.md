@@ -180,6 +180,8 @@ Full editor restart after building (new UPROPERTYs and shader params, Live Codin
 
 3.2 presets, 3.3 toolbar: checklists written when each starts.
 
+For 3.3, start from a working 5.8 example of extending the level viewport toolbar: `Engine/Plugins/Developer/RenderDocPlugin/Source/RenderDocPlugin/Private/SRenderDocPluginEditorExtension.cpp` (also PixWinPlugin and GPUReshape). The menu is `LevelEditor.ViewportToolbar` (`SLevelViewport.cpp:2316`).
+
 ## Rules that should not drift
 
 - **Post-tonemap only.** Pre-tonemap luminance is what the built-in Eye Adaptation view already shows, and it doesn't match Photoshop.
