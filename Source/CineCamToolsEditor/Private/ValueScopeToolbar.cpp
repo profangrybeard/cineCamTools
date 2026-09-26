@@ -41,8 +41,23 @@ namespace
 		{
 			return LOCTEXT("Label", "Value Scope");
 		}
-		return FText::Format(LOCTEXT("LabelOn", "Value Scope: {0}"),
-			StaticEnum<EValueScopeMode>()->GetDisplayNameTextByValue(static_cast<int64>(Current().Settings.Mode)));
+		// Never "Off" while enabled: Mode Off only means the image is left alone (the Exposure preset),
+		// and "Value Scope: Off" read as the whole scope being off.
+		const FValueScopeSettings& S = Current().Settings;
+		FText What;
+		if (S.Mode != EValueScopeMode::Off)
+		{
+			What = StaticEnum<EValueScopeMode>()->GetDisplayNameTextByValue(static_cast<int64>(S.Mode));
+		}
+		else if (S.bClipZebras || S.bThirdsGuide || S.bHistogram || S.bClipPercentages || S.bWaveform)
+		{
+			What = LOCTEXT("LabelOverlays", "Overlays");
+		}
+		else
+		{
+			What = LOCTEXT("LabelOnly", "On");
+		}
+		return FText::Format(LOCTEXT("LabelOn", "Value Scope: {0}"), What);
 	}
 
 	void AddPresetEntries(FToolMenuSection& Section, const TArray<FValueScopePresetChoice>& Choices)

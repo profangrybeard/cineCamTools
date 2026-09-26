@@ -30,6 +30,10 @@ private:
 	// notice and the clip percentages. Canvas text never lands in HighResShot.
 	void DrawCanvas(class UCanvas* Canvas, class APlayerController* PC);
 	void DrawOverrideNotice(class UCanvas* Canvas);
+	void DrawHDRNotice(class UCanvas* Canvas);
+
+	// Game thread only. Views whose value tools were turned off because the output is HDR.
+	TSet<const FSceneViewStateInterface*> HDRBlocked;
 	void DrawClipPercentages(class UCanvas* Canvas);
 	FDelegateHandle DebugDrawHandle;
 

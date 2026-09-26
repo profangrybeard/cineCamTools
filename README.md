@@ -41,6 +41,8 @@ Overlays (turn on with any mode, including Off):
 
 Turn it off before final renders. Movie Render Queue will bake it in.
 
+Value Scope only works on SDR output. With HDR output on (or a HighResShot with Capture HDR), the pixels aren't 0 to 255 values anymore, so it turns the value tools off and an orange line at the bottom left says so. The thirds guide still works.
+
 Every Value Scope setting can be keyed in Sequencer, the same way you key the camera's focal length: add the camera to a Level Sequence, then + Track on its ValueScope component. Use it to switch views per shot, or key Enabled off before a final render.
 
 ### Presets

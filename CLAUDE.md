@@ -6,7 +6,9 @@ Unreal Engine 5.8 plugin of camera tools for teaching lighting, value and compos
 
 - 3.1 and the pilot fix are committed and pushed (`d684851`).
 - 3.2 presets is committed and pushed (`3e7bd28`).
-- 3.3 toolbar passed every editor check on 2026-09-26 and is committed ("Value Scope step 3.3: editor toolbar"). Push when Tim says. Step 3 is done. Next: ask Tim what step 4 is; nothing is planned yet. 3.2 design (agreed 2026-09-26): Preset row at the top of the component's Value Scope category, Apply Preset dropdown (built-ins, then every `UValueScopePreset` asset) and Save as Preset button; new editor module `CineCamToolsEditor` (3.3's toolbar goes there too).
+- Step 3 is done and pushed (`3ea53d1`).
+- Step 4 (spot meter) agreed 2026-09-26, see "Step 4 checklist". 4.1 HDR notice (plus toolbar label fix) passed on 2026-09-26, two checks skipped for lack of an HDR display, committed as "Value Scope step 4.1: HDR notice". Push when Tim says. Next: 4.2 live spot meter, write its checklist and wait for go.
+- 3.2 design (agreed 2026-09-26): Preset row at the top of the component's Value Scope category, Apply Preset dropdown (built-ins, then every `UValueScopePreset` asset) and Save as Preset button; new editor module `CineCamToolsEditor` (3.3's toolbar goes there too).
 
   | Preset | Mode | Overlays |
   |---|---|---|
@@ -40,9 +42,15 @@ Unreal Engine 5.8 plugin of camera tools for teaching lighting, value and compos
 - CineCameraActor hides Auto Activate for Player; use Level Blueprint BeginPlay > Get Player Controller > Set View Target with Blend.
 - The shell here mangles backslashes and quotes in heredocs. For multi-line code edits, write a Python patch script to the scratchpad with the Write tool and run it, or use the Edit tool.
 
-## Current goal: roadmap, step 4 (not planned yet)
+## Current goal: roadmap, step 4
 
-Plumbing and steps 1 to 3 are done. Ask Tim what step 4 is; discuss and diagram it before any code.
+Plumbing and steps 1 to 3 are done. Tim said go on step 4: spot meter, HDR notice first. Work "Step 4 checklist" in order: 4.1 HDR notice, 4.2 live spot meter, 4.3 pins. Each tested and committed on its own.
+
+Step 4 decisions (Tim, 2026-09-26):
+
+- HDR output: turn every value tool off (modes, zebras, histogram, clip %, waveform, meter), keep the thirds guide and plumbing frame (geometry only), canvas notice bottom left above the override notice, log once. Wrong numbers teach the wrong thing.
+- Spot meter samples the cursor in editor viewports, the frame center otherwise (PIE, games, cursor elsewhere). Fixed box, about 9x9 px at 1080p, scaled with view height. Averages `LumaLevel()`. Readout is level and zone, canvas only, never baked. `bSpotMeter` on the component (keyable), toolbar menu, `r.ValueScope.SpotMeter`. No built-in preset turns it on. Cursor reaches the runtime module through an editor hook, like the toolbar resolver.
+- Pins: up to 4 (A to D), per viewport, not saved, live. Differences from A in levels and zones, never stops (that would need pre-tonemap light). Pinned with a rebindable editor command "Pin Spot Meter Point" (check the default key for conflicts), plus Pin and Clear Pins in the toolbar menu.
 
 Step 3 decisions (Tim, 2026-09-25):
 
@@ -235,6 +243,20 @@ Pilot fix (settings now resolved in `BeginRenderViewFamily`, because `ViewActor`
 
 For 3.3, start from a working 5.8 example of extending the level viewport toolbar: `Engine/Plugins/Developer/RenderDocPlugin/Source/RenderDocPlugin/Private/SRenderDocPluginEditorExtension.cpp` (also PixWinPlugin and GPUReshape). The menu is `LevelEditor.ViewportToolbar` (`SLevelViewport.cpp:2316`).
 
+## Step 4 checklist
+
+4.1 HDR notice (`IsHDROutput`: `IsHDREnabled()`, the family's `bIsHDR`, or HighResShot with Capture HDR; `ReadsValues` strips Notan, False Color, zebras, histogram, clip %, waveform; `HDRBlocked` set drives the canvas line):
+
+- [x] Build clean.
+- [x] Editor opens, no errors. SDR as usual: toolbar in Exposure preset plus Thirds, everything draws, no orange line. (Nothing changed for SDR.)
+- [ ] `r.HDR.EnableHDROutput 1`. If the image changes to HDR: value tools vanish, thirds stay, orange line bottom left ("Value Scope is off: HDR output..."), one LogValueScope warning in the log. With a console override set too, the yellow line sits under the orange one. `r.HDR.EnableHDROutput 0`: everything back. If nothing changes on this monitor, skip this check (no HDR output path) and note it. SKIPPED 2026-09-26: Tim's internal display reports "HDR games, apps and more: Not supported" in Windows, so there's no HDR swapchain. Test on an HDR display when one is available.
+- [x] High Resolution Screenshot window (viewport menu), tick Capture HDR, take a shot with the toolbar in Exposure plus Thirds: the saved image has the thirds lines and no value overlays. Untick it, shot again: overlays are back. Result: `HighresScreenshot_2026.09.26-12.42.43.png` (Capture HDR) thirds only, one LogValueScope warning; `HighresScreenshot00014.png` (off) histogram and thirds back (toolbar had Histogram + Thirds on).
+- [ ] `DisableAllScreenMessages` hides the orange line; `EnableAllScreenMessages` brings it back. SKIPPED 2026-09-26: the line only shows while HDR is detected live, and Tim's display has no HDR output. Same code path as the override notice's check, which passed in step 1.
+- [x] Toolbar label (folded in 2026-09-26): with Mode Off it said "Value Scope: Off" while enabled, which read as the scope being off. Now: Notan or False Color by mode, "Overlays" with Mode Off and any overlay (Exposure preset), "On" with nothing selected. Disabled: plain "Value Scope".
+- [x] `package_plugin.bat` passes.
+
+4.2 live spot meter, 4.3 pins: checklists written when each starts.
+
 ## Rules that should not drift
 
 - **Post-tonemap only.** Pre-tonemap luminance is what the built-in Eye Adaptation view already shows, and it doesn't match Photoshop.
@@ -248,7 +270,6 @@ For 3.3, start from a working 5.8 example of extending the level viewport toolba
 ## Known risks, most likely first
 
 1. In editor viewports with icons showing, the editor primitive composite runs after our Tonemap hook and changes pixels (not just the icons), so the histogram differs from a HighResShot of that view by a few percent. Game View (G), PIE, games and Movie Render Queue don't run it, and there the histogram matches the PNG. No post-process hook exists after it. The dump line says "other passes follow ours" when this applies.
-2. HDR output after Tonemap is PQ or scRGB, not 0 to 1. Out of scope. Skip or warn later.
 
 When a risk is resolved, fix the code, delete the item here, and say what 5.8 actually does.
 
@@ -259,6 +280,7 @@ Resolved against the 5.8.3 install (CL 58210709):
 - `Inputs.GetInput(...)` returns `FScreenPassTextureSlice`. `FScreenPassTexture::CopyFromSlice(GraphBuilder, Slice)` returns `FScreenPassTexture`. `Inputs.OverrideOutput` is an `FScreenPassRenderTarget`.
 - `Pending` can't be keyed by view pointer. The renderer copies each `FSceneView` into a new `FViewInfo` (`SceneRendering.cpp`, `Views.Emplace_GetRef(InViewFamily->Views[i])`), so `SubscribeToPostProcessingPass` sees a different address than the game thread did. It's now keyed by `InView.State`, which is copied over and unique per view. Views with no State get no overlay.
 - `InView.ViewActor` is null during `SetupView` in a level viewport, even while piloting: `FEditorViewportClient::CalcSceneView` calls `SetupView` (`EditorViewportClient.cpp:1650`), and only afterward does `FLevelEditorViewportClient::CalcSceneView` set `ViewActor` to the locked actor (`LevelEditorViewport.cpp:2563`). A free (unpiloted) viewport has no ViewActor at all. We resolve settings in `BeginRenderViewFamily` instead (`SceneRenderBuilder.cpp:511`, game thread, after all views are complete, before the renderer copies them). Scene captures also go through `CreateSceneRenderer`, so they behave as before. Found 2026-09-26: step 1 to 3.1 component checks all ran in PIE, where `LocalPlayer.cpp` sets ViewActor before `SetupView`.
+- HDR output after Tonemap is PQ or scRGB, not 0 to 1. `IsHDREnabled()` (`RenderCore.cpp:433`) is `GRHISupportsHDROutput && r.HDR.EnableHDROutput`, so on a machine without HDR output support the cvar does nothing. We also check `FSceneViewFamily::bIsHDR` and HighResShot's `bCaptureHDR` (writes linear HDR). When any is true, value tools are turned off with a notice (step 4.1).
 
 ## Roadmap
 

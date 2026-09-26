@@ -8,6 +8,8 @@
 #include "GameFramework/Actor.h"
 #include "HAL/FileManager.h"
 #include "HAL/IConsoleManager.h"
+#include "HDRHelper.h"
+#include "HighResScreenshot.h"
 #include "Misc/DateTime.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
@@ -28,6 +30,22 @@ DEFINE_LOG_CATEGORY_STATIC(LogValueScope, Log, All);
 
 // The one live extension, for console commands. Set and cleared by the extension itself.
 static FValueScopeViewExtension* GValueScopeExtension = nullptr;
+
+// True if this family's post-tonemap output isn't 0 to 1 display values: HDR display output
+// (r.HDR.EnableHDROutput), an HDR view family, or a HighResShot with Capture HDR.
+static bool IsHDROutput(const FSceneViewFamily& Family)
+{
+	return IsHDREnabled()
+		|| Family.bIsHDR
+		|| (GIsHighResScreenshot && GetHighResScreenshotConfig().bCaptureHDR);
+}
+
+// Anything that reads pixel values. The thirds guide and the plumbing frame don't.
+static bool ReadsValues(const FValueScopeSettings& Settings)
+{
+	return Settings.Mode == EValueScopeMode::Notan || Settings.Mode == EValueScopeMode::FalseColor
+		|| Settings.bClipZebras || Settings.bHistogram || Settings.bClipPercentages || Settings.bWaveform;
+}
 
 // Set by CineCamToolsEditor for the level viewport toolbar. Game thread only.
 static ValueScope::FEditorViewportResolver GEditorViewportResolver;
@@ -149,7 +167,25 @@ void FValueScopeViewExtension::DrawCanvas(UCanvas* Canvas, APlayerController* PC
 		return;
 	}
 	DrawOverrideNotice(Canvas);
+	DrawHDRNotice(Canvas);
 	DrawClipPercentages(Canvas);
+}
+
+void FValueScopeViewExtension::DrawHDRNotice(UCanvas* Canvas)
+{
+	const FSceneView* View = Canvas->SceneView;
+	if (!GAreScreenMessagesEnabled || !View || !View->State || !HDRBlocked.Contains(View->State))
+	{
+		return;
+	}
+
+	// One line above the override notice, bottom left.
+	const float CanvasHeight = Canvas->ClipY / Canvas->Canvas->GetDPIScale();
+	FCanvasTextItem Text(FVector2D(100.0f, CanvasHeight - 50.0f),
+		FText::FromString(TEXT("Value Scope is off: HDR output. Values only match Photoshop on an SDR display. The thirds guide still works.")),
+		GEngine->GetSmallFont(), FLinearColor(1.0f, 0.6f, 0.2f));
+	Text.EnableShadow(FLinearColor::Black);
+	Canvas->DrawItem(Text);
 }
 
 void FValueScopeViewExtension::DrawOverrideNotice(UCanvas* Canvas)
@@ -382,10 +418,42 @@ void FValueScopeViewExtension::ResolveView(const FSceneView& InView)
 		}
 	}
 
+	// HDR output after Tonemap is PQ or scRGB, not 0 to 255, so every value tool would show wrong
+	// numbers. Keep what doesn't read values (thirds guide, plumbing frame) and say why the rest is gone.
+	bool bHDRBlocked = false;
+	if (bActive && InView.Family && IsHDROutput(*InView.Family) && ReadsValues(Settings))
+	{
+		if (Settings.Mode == EValueScopeMode::Notan || Settings.Mode == EValueScopeMode::FalseColor)
+		{
+			Settings.Mode = EValueScopeMode::Off;
+		}
+		Settings.bClipZebras = false;
+		Settings.bHistogram = false;
+		Settings.bClipPercentages = false;
+		Settings.bWaveform = false;
+		bHDRBlocked = true;
+
+		static bool bLogged = false;
+		if (!bLogged)
+		{
+			bLogged = true;
+			UE_LOG(LogValueScope, Warning, TEXT("HDR output: value tools are off (levels after Tonemap are PQ or scRGB, not 0 to 255). The thirds guide still draws."));
+		}
+	}
+
 	// Views without a state (some scene captures) have no stable key, so they get no overlay.
 	if (!InView.State)
 	{
 		return;
+	}
+
+	if (bHDRBlocked)
+	{
+		HDRBlocked.Add(InView.State);
+	}
+	else
+	{
+		HDRBlocked.Remove(InView.State);
 	}
 
 	if (bActive && Settings.IsActive())
