@@ -13,6 +13,18 @@ enum class EValueScopeMode : uint8
 	FalseColor    UMETA(DisplayName = "False Color", ToolTip = "Paints each of the 11 zones (0 to X) its own color. Same colors as value_report.py.")
 };
 
+/** Built-in presets. Anything a preset doesn't list is off, and the clip levels stay at 0.02 and 0.98. */
+UENUM(BlueprintType)
+enum class EValueScopeBuiltInPreset : uint8
+{
+	Notan       UMETA(ToolTip = "Notan only: black, grey, white. Everything else off."),
+	ValueCheck  UMETA(DisplayName = "Value Check", ToolTip = "False color zones with the histogram."),
+	Exposure    UMETA(ToolTip = "Image unchanged. Clip zebras, histogram, clip percentages and waveform."),
+	Composition UMETA(ToolTip = "Notan with the thirds guide. Value masses against the grid.")
+};
+
+class UValueScopePreset;
+
 USTRUCT(BlueprintType)
 struct FValueScopeSettings
 {
@@ -69,6 +81,7 @@ struct FValueScopeSettings
  * after tonemapping. Movie Render Queue will bake it in, so turn it off for final renders.
  * Every setting can be keyed in Sequencer, like the camera's focal length: switch the
  * scope per shot, or key Enabled off for the final render.
+ * A preset is copied into Settings when applied, so the settings stay editable and keyable after.
  */
 UCLASS(ClassGroup = Camera, meta = (BlueprintSpawnableComponent, DisplayName = "Value Scope"))
 class CINECAMTOOLS_API UValueScopeComponent : public UActorComponent
@@ -81,4 +94,16 @@ public:
 
 	UPROPERTY(Interp, EditAnywhere, BlueprintReadWrite, Category = "Value Scope", meta = (ShowOnlyInnerProperties))
 	FValueScopeSettings Settings;
+
+	/** Copies a built-in preset into Settings. Keyed Sequencer tracks still win on the next frame. */
+	UFUNCTION(BlueprintCallable, Category = "Value Scope")
+	void ApplyBuiltInPreset(EValueScopeBuiltInPreset Preset);
+
+	/** Copies a preset asset into Settings. Does nothing if Preset is empty. */
+	UFUNCTION(BlueprintCallable, Category = "Value Scope")
+	void ApplyPreset(const UValueScopePreset* Preset);
+
+	/** The settings a built-in preset applies. One definition, shared by the component, the Details picker and the toolbar. */
+	UFUNCTION(BlueprintPure, Category = "Value Scope")
+	static FValueScopeSettings GetBuiltInPreset(EValueScopeBuiltInPreset Preset);
 };

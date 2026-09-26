@@ -23,8 +23,8 @@ Overlays (turn on with any mode, including Off):
 ## Use
 
 1. Select a CineCameraActor. Add Component > Value Scope. Pick a mode.
-2. It shows whenever that camera is the view target: PIE, Sequencer in game, Movie Render Queue.
-3. In the editor viewport, use the console:
+2. It shows whenever you look through that camera: piloting it in the editor viewport, PIE, Sequencer, Movie Render Queue.
+3. In the free editor viewport (not looking through a camera), use the console:
    - `r.ValueScope.Mode 1` plumbing check
    - `r.ValueScope.Mode 2` notan
    - `r.ValueScope.Mode 3` false color
@@ -41,6 +41,21 @@ Overlays (turn on with any mode, including Off):
 Turn it off before final renders. Movie Render Queue will bake it in.
 
 Every Value Scope setting can be keyed in Sequencer, the same way you key the camera's focal length: add the camera to a Level Sequence, then + Track on its ValueScope component. Use it to switch views per shot, or key Enabled off before a final render.
+
+### Presets
+
+At the top of the Value Scope settings, **Apply Preset** sets everything at once:
+
+| Preset | Shows |
+|---|---|
+| Notan | Black, grey, white. Nothing else. |
+| Value Check | False color zones and the histogram. |
+| Exposure | The image unchanged, with clip zebras, histogram, clip percentages and waveform. |
+| Composition | Notan and the thirds guide. |
+
+A preset is copied into the camera, so you can still change and key any setting afterward. **Save as Preset** saves the camera's current settings as a Value Scope Preset asset. Presets saved in the project show in every camera's Apply Preset list, under the built-in ones. Give yours a Description; it shows when you hover over it in the list. Changing a preset asset later doesn't change cameras that already used it.
+
+In Blueprint, a Value Scope component has Apply Built In Preset and Apply Preset.
 
 ## Check a frame outside the engine
 

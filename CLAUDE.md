@@ -4,9 +4,8 @@ Unreal Engine 5.8 plugin of camera tools for teaching lighting, value and compos
 
 ## Where we left off (2026-09-26)
 
-- Step 3.1 (Sequencer keying) passed every editor check on 2026-09-26 and is committed as "Value Scope step 3.1: Sequencer keying". Push when Tim says.
-- Pilot fix passed Tim's editor checks and is committed ("Value Scope: resolve settings after the view is complete"). Push when Tim says.
-- Then 3.2 presets. Design agreed: dropdown picker in the component's Details (built-ins, separator, preset assets), the four built-ins in the table below, and a Save as Preset button. Needs the editor module `CineCamToolsEditor` now. Write the 3.2 checklist, wait for "go".
+- 3.1 and the pilot fix are committed and pushed (`d684851`).
+- 3.2 presets passed every editor check on 2026-09-26 and is committed ("Value Scope step 3.2: presets"). Push when Tim says. Next: 3.3 toolbar, discuss and diagram the design first. 3.2 design (agreed 2026-09-26): Preset row at the top of the component's Value Scope category, Apply Preset dropdown (built-ins, then every `UValueScopePreset` asset) and Save as Preset button; new editor module `CineCamToolsEditor` (3.3's toolbar goes there too).
 
   | Preset | Mode | Overlays |
   |---|---|---|
@@ -78,7 +77,10 @@ CineCamTools.uplugin
 Source/CineCamToolsShaders/   PostConfigInit. Shader dir mapping; FValueScopePS (permutations
                               VALUE_SCOPE_HISTOGRAM, VALUE_SCOPE_WAVEFORM), FValueScopeHistogramCS,
                               FValueScopeHistogramMaxCS, FValueScopeWaveformCS.
-Source/CineCamTools/          Default. UValueScopeComponent, FValueScopeViewExtension, module.
+Source/CineCamTools/          Default. UValueScopeComponent (+ built-in presets), UValueScopePreset,
+                              FValueScopeViewExtension, module.
+Source/CineCamToolsEditor/    Editor only. FValueScopeComponentDetails (preset picker, Save as Preset).
+                              3.3's toolbar goes here.
 Shaders/Private/ValueScope.usf  All shader entry points: MainPS, HistogramCS, HistogramMaxCS, WaveformCS.
 Tools/value_report.py         CPU reference for the shader math, runs on a PNG.
 Scripts/                      link_workbench.bat, build_workbench.bat, package_plugin.bat
@@ -195,7 +197,24 @@ Pilot fix (settings now resolved in `BeginRenderViewFamily`, because `ViewActor`
 - [x] Piloting, Game View, `HighResShot 1`: panels are baked into the PNG.
 - [x] `package_plugin.bat` passes.
 
-3.2 presets, 3.3 toolbar: checklists written when each starts.
+3.2 presets (`UValueScopeComponent::GetBuiltInPreset` is the one definition of the built-ins; `UValueScopePreset` data asset; `FValueScopeComponentDetails` in `CineCamToolsEditor` applies through the Settings property handle, so it's one undo step and covers multi-select and Blueprint templates):
+
+- [x] Build clean.
+- [x] Full editor restart (new module, new UCLASS). Opens with no errors, and no LogPython "same name" warning (the enum was `EValueScopePreset`, which clashed with `UValueScopePreset` in Python; now `EValueScopeBuiltInPreset`).
+- [x] Value Scope component Details: a full-width row at the top of the Value Scope category with Apply Preset and Save as Preset side by side, both visible with the Details panel docked narrow. (First try put them in the value column and Save as Preset was cut off.)
+- [x] Apply Preset lists Notan, Value Check, Exposure, Composition (hover shows each tooltip), then Project presets saying "None yet".
+- [x] Apply each built-in while piloting: settings match the table in "Where we left off" and the view changes to match. Clip levels reset to 0.02 / 0.98.
+- [x] Ctrl+Z after applying restores the previous settings in one step.
+- [x] Edit a setting after applying (for example Histogram on with Notan): it sticks, and keys in Sequencer as before.
+- [x] Save as Preset: name dialog opens straight away (no class picker), makes the asset with the camera's settings. Give it a Description.
+- [x] The new asset shows under Project presets, with its Description as the tooltip. Apply it to a second camera: same settings.
+- [x] Content Browser > Miscellaneous > Data Asset lists Value Scope Preset, and one made that way also shows in the list.
+- [x] Change the preset asset: cameras that already used it don't change.
+- [x] Two cameras selected, Apply Preset: both change.
+- [x] Level Blueprint BeginPlay > Apply Built In Preset (Exposure) on the camera's Value Scope, PIE through it: Exposure shows.
+- [x] `package_plugin.bat` passes.
+
+3.3 toolbar: checklist written when it starts.
 
 For 3.3, start from a working 5.8 example of extending the level viewport toolbar: `Engine/Plugins/Developer/RenderDocPlugin/Source/RenderDocPlugin/Private/SRenderDocPluginEditorExtension.cpp` (also PixWinPlugin and GPUReshape). The menu is `LevelEditor.ViewportToolbar` (`SLevelViewport.cpp:2316`).
 
@@ -204,7 +223,8 @@ For 3.3, start from a working 5.8 example of extending the level viewport toolba
 - **Post-tonemap only.** Pre-tonemap luminance is what the built-in Eye Adaptation view already shows, and it doesn't match Photoshop.
 - **Luma weights 0.30 / 0.59 / 0.11**, Photoshop's Luminosity histogram. Not Rec.709.
 - **Shader, component defaults and `value_report.py` share constants.** Change all or none.
-- **Shaders module stays PostConfigInit, runtime module stays Default.** No UObjects in the shaders module.
+- **Shaders module stays PostConfigInit, runtime module stays Default.** No UObjects in the shaders module. Editor-only code (Slate, UnrealEd) goes in `CineCamToolsEditor`, never the runtime module.
+- **Built-in presets have one definition:** `UValueScopeComponent::GetBuiltInPreset`. The picker, Blueprint and the toolbar all call it.
 - **Docs and on-screen text:** plain language, no em-dashes. Students read this.
 
 ## Known risks, most likely first
